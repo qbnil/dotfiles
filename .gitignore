@@ -1,4 +1,4 @@
-# Credentials and private identity — never commit these.
+# Never publish credentials or private keys.
 config/.config/shell/secrets.sh
 config/.config/ghgrab/config.json
 config/.config/anthropic/credentials/
@@ -7,23 +7,8 @@ config/.config/ssh/
 **/*credentials*
 **/*secret*
 **/id_*_key
-**/known_hosts*
 
-# Runtime state, caches, history and databases.
-**/.cache/
-**/.local/state/
-**/.zcompdump
-**/*history*
-**/*.log
-**/*-wal
-**/*-shm
-**/*.sqlite
-**/*.sqlite-*
-**/*.db
-**/*.db-*
-**/database
-
-# Compiled programs and build output.
+# Generated build artifacts: recreate these locally.
 **/*.o
 **/*.so
 **/*.a
@@ -36,40 +21,3 @@ share/.local/share/st-terminal/st
 share/.local/share/nsxiv/nsxiv
 share/.local/share/vcompmgr/vcompmgr
 share/.local/share/zlstatus/zig-out/
-
-# Nested repositories and downloaded dependencies.
-**/.git/
-config/.config/tmux/plugins/
-config/.config/nvim/.git/
-
-# Personal data kept locally for this machine but not published.
-share/.local/share/archives/
-share/.local/share/downloads/
-share/.local/share/documents/
-share/.local/share/music/
-share/.local/share/pictures/
-share/.local/share/honkai-star-rail-cursors/
-
-# Regenerated or explicitly excluded application data.
-share/.local/share/videos/
-share/.local/share/TelegramDesktop/
-share/.local/share/claude/
-share/.local/share/tor-browser/
-share/.local/share/nvim/
-share/.local/share/cargo/
-share/.local/share/Trash/
-share/.local/share/xorg/
-share/.local/share/flatpak/
-share/.local/share/gvfs-metadata/
-share/.local/share/mime/
-share/.local/share/pki/
-share/.local/share/kwalletd/
-share/.local/share/kxmlgui5/
-share/.local/share/okular/
-share/.local/share/torbrowser/
-share/.local/share/scripts/test-proxies/
-share/.local/share/zapret-discord-youtube-linux/
-
-# Local editor and OS noise.
-*.swp
-.DS_Store
