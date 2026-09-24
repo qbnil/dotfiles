@@ -1,23 +1,29 @@
-# Secrets and private identity
+# Credentials and private identity — never commit these.
 config/.config/shell/secrets.sh
 config/.config/ghgrab/config.json
-config/.config/anthropic/credentials
+config/.config/anthropic/credentials/
 config/.config/claude/claude.json
 config/.config/ssh/
-**/id_*_key
 **/*credentials*
 **/*secret*
+**/id_*_key
+**/known_hosts*
 
-# Runtime, caches, history, and generated state
+# Runtime state, caches, history and databases.
 **/.cache/
 **/.local/state/
 **/.zcompdump
 **/*history*
 **/*.log
+**/*-wal
+**/*-shm
+**/*.sqlite
+**/*.sqlite-*
+**/*.db
+**/*.db-*
 **/database
-**/known_hosts
 
-# Build outputs and compiled programs
+# Compiled programs and build output.
 **/*.o
 **/*.so
 **/*.a
@@ -31,13 +37,12 @@ share/.local/share/nsxiv/nsxiv
 share/.local/share/vcompmgr/vcompmgr
 share/.local/share/zlstatus/zig-out/
 
-# Nested upstream repositories and dependencies
+# Nested repositories and downloaded dependencies.
 **/.git/
 config/.config/tmux/plugins/
 config/.config/nvim/.git/
 
-# Personal data: retained locally for recovery, never committed to GitHub.
-# The separate /home/kent/kent-user-data-*.tar.zst archive is the backup copy.
+# Personal data kept locally for this machine but not published.
 share/.local/share/archives/
 share/.local/share/downloads/
 share/.local/share/documents/
@@ -45,7 +50,7 @@ share/.local/share/music/
 share/.local/share/pictures/
 share/.local/share/honkai-star-rail-cursors/
 
-# Regenerated/runtime data
+# Regenerated or explicitly excluded application data.
 share/.local/share/videos/
 share/.local/share/TelegramDesktop/
 share/.local/share/claude/
@@ -63,14 +68,8 @@ share/.local/share/kxmlgui5/
 share/.local/share/okular/
 share/.local/share/torbrowser/
 share/.local/share/scripts/test-proxies/
-share/.local/share/zapret-discord-youtube-linux/conf.env
-share/.local/share/zapret-discord-youtube-linux/user-lists/
-share/.local/share/zapret-discord-youtube-linux/zapret-latest/
+share/.local/share/zapret-discord-youtube-linux/
 
-# Local editor/OS noise
+# Local editor and OS noise.
 *.swp
 .DS_Store
-config/.config/bash/xdg-env.sh
-
-# Excluded application repository
-share/.local/share/zapret-discord-youtube-linux/
