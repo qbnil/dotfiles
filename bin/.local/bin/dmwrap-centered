@@ -1,0 +1,18 @@
+#!/bin/sh
+# dmwrap — rice dmenu (centered). Default: vertical list below top bar.
+#   … | dmwrap [-p prompt] [-l N] [-H]
+set -eu
+
+has_l=0
+has_H=0
+for a in "$@"; do
+	case "$a" in
+	-l) has_l=1 ;;
+	-H | --horizontal) has_H=1 ;;
+	esac
+done
+
+if [ "$has_H" -eq 1 ] || [ "$has_l" -eq 1 ]; then
+	exec dmenu-above "$@"
+fi
+exec dmenu-above-centered -l 8 "$@"

@@ -1,0 +1,37 @@
+#!/bin/sh
+
+#pipewire &
+#pipewire-pulse &
+#wireplumber &
+
+xinput --set-prop "Elan Touchpad" "libinput Natural Scrolling Enabled" 1
+xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Profile Enabled' 0, 1 
+xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0
+export XDG_SESSION_TYPE=x11
+xrandr --output HDMI-0 --primary --mode 1920x1080 --pos 0x0 \
+       --output DP-0 --mode 1920x1080 --pos -1920x0
+# xrandr --output HDMI-0 --mode 1920x1080 --rate 240 --primary
+# hsetroot -cover "/home/kent/pictures/Wall-E-Desk/landscape-anime/wallhaven-w5ejkr.jpg"
+wal -R
+xrdb -merge ~/.Xresources
+#IMG=$(cat ~/.cache/wal/wal)
+#hsetroot -cover "$IMG"
+# wal -i "$IMG"
+setxkbmap -layout us,ru -option "grp:win_space_toggle"
+dunst &
+flameshot &
+
+/home/kent/.local/share/zlstatus/zig-out/bin/zlstatus &
+
+# xcompmgr -c -C -f -F -I 0.03 -O 0.03 -D 5 &
+# xcompmgr -c -C &
+# vcompmgr & 
+# picom --config ~/.config/picom/picom.conf -b
+picomlaunch &
+
+# for browser to be able to open file manager
+systemctl --user import-environment DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP
+
+exec vxwm
+
+

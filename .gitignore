@@ -1,0 +1,76 @@
+# Secrets and private identity
+config/.config/shell/secrets.sh
+config/.config/ghgrab/config.json
+config/.config/anthropic/credentials
+config/.config/claude/claude.json
+config/.config/ssh/
+**/id_*_key
+**/*credentials*
+**/*secret*
+
+# Runtime, caches, history, and generated state
+**/.cache/
+**/.local/state/
+**/.zcompdump
+**/*history*
+**/*.log
+**/database
+**/known_hosts
+
+# Build outputs and compiled programs
+**/*.o
+**/*.so
+**/*.a
+**/.zig-cache/
+**/zig-out/
+share/.local/share/vxwm/vxwm
+share/.local/share/dmenu/dmenu
+share/.local/share/slock/slock
+share/.local/share/st-terminal/st
+share/.local/share/nsxiv/nsxiv
+share/.local/share/vcompmgr/vcompmgr
+share/.local/share/zlstatus/zig-out/
+
+# Nested upstream repositories and dependencies
+**/.git/
+config/.config/tmux/plugins/
+config/.config/nvim/.git/
+
+# Personal data: retained locally for recovery, never committed to GitHub.
+# The separate /home/kent/kent-user-data-*.tar.zst archive is the backup copy.
+share/.local/share/archives/
+share/.local/share/downloads/
+share/.local/share/documents/
+share/.local/share/music/
+share/.local/share/pictures/
+share/.local/share/honkai-star-rail-cursors/
+
+# Regenerated/runtime data
+share/.local/share/videos/
+share/.local/share/TelegramDesktop/
+share/.local/share/claude/
+share/.local/share/tor-browser/
+share/.local/share/nvim/
+share/.local/share/cargo/
+share/.local/share/Trash/
+share/.local/share/xorg/
+share/.local/share/flatpak/
+share/.local/share/gvfs-metadata/
+share/.local/share/mime/
+share/.local/share/pki/
+share/.local/share/kwalletd/
+share/.local/share/kxmlgui5/
+share/.local/share/okular/
+share/.local/share/torbrowser/
+share/.local/share/scripts/test-proxies/
+share/.local/share/zapret-discord-youtube-linux/conf.env
+share/.local/share/zapret-discord-youtube-linux/user-lists/
+share/.local/share/zapret-discord-youtube-linux/zapret-latest/
+
+# Local editor/OS noise
+*.swp
+.DS_Store
+config/.config/bash/xdg-env.sh
+
+# Excluded application repository
+share/.local/share/zapret-discord-youtube-linux/

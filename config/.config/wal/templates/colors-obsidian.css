@@ -1,0 +1,19 @@
+.theme-dark {{
+    --background-primary: {color0};
+    --background-primary-alt: {color8};
+    --background-secondary: {color0};
+    --background-secondary-alt: {color0};
+    
+    --text-normal: {color7};
+    --text-muted: {color6};
+    --text-faint: {color5};
+    
+    --text-accent: {color1};
+    --interactive-accent: {color2};
+    --interactive-accent-hover: {color3};
+    
+    --titlebar-background: {color0};
+    --scrollbar-bg: {color0};
+    --scrollbar-thumb-bg: {color8};
+}}
+

@@ -1,0 +1,37 @@
+#!/bin/bash
+
+tailnet="lopess3300xx@gmail.com"
+apikey="${TAILSCALE_API_KEY}"
+targetname="xertox"
+
+if [[ -z "$apikey" ]]; then
+  echo "Error: TAILSCALE_API_KEY not set"
+  exit 1
+fi
+
+# Fetch devices first into a variable to avoid pipeline issues
+devices=$(curl -s "https://api.tailscale.com/api/v2/tailnet/$tailnet/devices" -u "$apikey:")
+
+# Check if curl succeeded and returned valid JSON
+if [[ -z "$devices" ]] || ! echo "$devices" | jq -e . >/dev/null 2>&1; then
+  echo "Error: Failed to fetch devices or invalid JSON response"
+  exit 1
+fi
+
+# Process each device
+echo "$devices" | jq -r '.devices[]? | "\(.id) \(.hostname)"' | while read -r id hostname; do
+  # Skip empty lines
+  [[ -z "$id" || -z "$hostname" ]] && continue
+  
+  if [[ "$hostname" == *"$targetname"* ]]; then
+    echo "$hostname ($id) matches '$targetname' - deleting"
+    curl -s -X DELETE "https://api.tailscale.com/api/v2/device/$id" -u "$apikey:"
+  else
+    echo "$hostname does not match '$targetname', keeping"
+  fi
+done
+
+echo "Done checking all devices."
+exit 0
+
+

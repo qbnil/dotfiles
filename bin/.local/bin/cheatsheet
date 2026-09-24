@@ -1,0 +1,119 @@
+#!/bin/sh
+# cheatsheet — all keybinds, blocks + search, looks like clipmenu/fontpicker
+# Bind: Super+/
+#
+# Rebuilt against your actual vxwm config.h and st config.h.
+# Lines marked * are behind an #if FEATURE flag in config.h — they only
+# work if that flag is enabled in your build. Lines marked ? are things
+# your old cheatsheet listed that don't exist in either config file
+# (probably bound via sxhkd or something else outside vxwm/st) — verify
+# or drop them.
+set -eu
+# Section headers start with "──" (not selectable as actions)
+# Type to search (dmenu filters lines). Super = Mod4, Alt = Mod1.
+cheat_list() {
+	cat <<'EOF'
+── launch ──
+Super+p                    app launcher (dmenu)
+Super+Return                terminal (st)
+Super+c                     add clipboard entry (cliphist add)
+Super+v                     paste from clipboard (cliphist sel)
+Super+bracketleft           previous song (mpc)
+Super+bracketright          next song (mpc)
+Super+s                     stop song (mpc)
+Super+Shift+p                toggle play/pause (mpc)
+Super+Shift+s                screenshot (flameshot gui)
+Super+/                     cheatsheet
+? Super+Shift+e             file manager — not in vxwm config, check sxhkd
+? Super+Shift+w             wallpaper picker — not in vxwm config, check sxhkd
+? Super+Shift+t             font picker — not in vxwm config, check sxhkd
+? Super+Escape              power menu — not in vxwm config, check sxhkd
+── window ──
+Super+q                      close window (killclient)
+Super+Shift+Return           swap master
+Super+Ctrl+h / l             shrink / grow master (setmfact)
+Super+i / o                  more / fewer masters (incnmaster)
+h / j / k / l  *              focus left/down/up/right (DIRECTIONAL_FOCUS)
+Super+e  *                   toggle floating, enhanced (ENHANCED_TOGGLE_FLOATING)
+Super+Shift+f  *             fullscreen (FULLSCREEN)
+Super+Shift+h/j/k/l  *       move window left/down/up/right in pixels (MOVE_RESIZE_WITH_KEYBOARD)
+── layout ──
+Super+f                      tiled layout
+Super+t                      floating layout
+Super+m                      monocle layout
+Super+- / =  *               gaps − / + (GAPS)
+Super+Shift+=  *             gaps reset (GAPS)
+Super+F5  *                  reload xresources / pywal colors (XRDB)
+── tags ──
+Super+1…9                    view tag
+Super+Shift+1…9              move window to tag
+Super+Ctrl+1…9               toggle tag in view
+Super+Ctrl+Shift+1…9         toggle tag on window
+Super+0                      view (tag arg 0)
+Super+Tab                    view all tags
+Super+Shift+0                tag window on all tags
+Super+b                      toggle bar
+── canvas (infinite desktop)  *  [INFINITE_TAGS] ──
+Alt+r                         home canvas (0,0)
+Alt+l / h / j / k             pan canvas — check config, comments look swapped
+Alt+d                         center window on canvas
+Alt+z                         pin window (stay on screen)
+Super+Shift+drag              pan canvas with mouse
+drag on empty desktop          pan canvas with mouse
+── monitors ──
+Super+, / .                   focus prev / next monitor
+Super+Shift+, / .             send window to monitor
+── zoom (screen)  *  [ZOOM] ──
+Alt+= / Alt+-                 zoom in / out
+Alt+Shift+r                   reset zoom
+Super+scroll (on window/root)  zoom in / out
+── mouse ──
+click layout symbol            cycle layout
+right-click layout symbol      set monocle layout
+middle-click title bar         swap master
+middle-click status text       open terminal
+Super+drag on client           move window
+Super+middle-click client      toggle floating
+Super+right-drag client        resize window
+click tag bar                  view tag
+right-click tag bar            toggle view tag
+Super+click tag bar            tag window
+Super+right-click tag bar      toggle tag on window
+── media ──
+Vol+ / Vol−                    volume up / down
+Mute                           mute toggle
+? Bri+ / Bri−                  brightness — no XF86Brightness bind found in config
+── session ──
+Super+Shift+q                  quit vxwm
+── terminal (st) ──
+Alt+,  / Alt+.                 decrease / increase font size
+Alt+g                           reset font size / zoom
+Ctrl+Shift+c                    copy
+Ctrl+Shift+v                    paste
+Ctrl+Shift+y / Shift+Insert     paste primary selection
+Ctrl+Shift+right-click          preview image under cursor (feh)
+Ctrl+Shift+middle-click         show image info
+scroll wheel                    scroll history
+Shift+PageUp / PageDown         scroll history by page
+Print                           print selection
+Shift+Print                     print screen
+Ctrl+Print                      toggle printer mode
+Ctrl+Shift+F1                    toggle graphics debug
+Ctrl+Shift+F6                    dump graphics state
+Ctrl+Shift+F7                    unload images
+Ctrl+Shift+F8                    toggle images
+EOF
+}
+# compact strip above bar (not full-screen)
+choice=$(cheat_list | dmenu -p "keys:" -l 6) || true
+[ -n "${choice:-}" ] || exit 0
+# ignore section headers and unverified (?) entries
+case "$choice" in
+──* | "?"* | "") exit 0 ;;
+esac
+# optional: toast the line you picked (handy when searching)
+if command -v dunstify >/dev/null 2>&1; then
+	dunstify -a keys -u low -t 2500 -r 9920 "keybind" "$choice"
+elif command -v notify-send >/dev/null 2>&1; then
+	notify-send -a keys -t 2500 "keybind" "$choice"
+fi
