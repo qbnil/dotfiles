@@ -6,7 +6,7 @@ XDG-first Arch Linux configuration for my vxwm desktop, managed with GNU Stow.
 
 - `config/` — the portable, non-secret part of `~/.config`, including the lowercase `thunar` configuration.
 - `bin/` — text scripts from `~/.local/bin`.
-- `share/` — the non-regenerated part of `~/.local/share`, including complete managed repositories such as vxwm, dmenu, slock, st-terminal, nsxiv, vcompmgr, zlstatus and related projects. Nested upstream `.git` directories and compiled output are removed so these are owned by this repository.
+- `share/` — the currently retained part of `~/.local/share`, including complete managed repositories for dmenu, slock, st-terminal, vxwm and zlstatus, plus selected scripts, music and cursor assets. Nested upstream `.git` directories and compiled output are removed so these are owned by this repository.
 - `bootstrap/` — package manifests and install helper.
 
 The former `applications/` and `fonts/` packages are intentionally not present. Fonts and desktop entries can be recreated or installed separately.
