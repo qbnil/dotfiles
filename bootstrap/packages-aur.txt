@@ -1,10 +1,5 @@
 ghgrab-bin
 lazyrsync
-obfs4proxy
 python-pywal16
-rate-mirrors-bin
-tg-ws-proxy
-ttf-joypixels
 waterfox-bin
-woeusb-ng
 yay-bin
