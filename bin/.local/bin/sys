@@ -1,0 +1,17 @@
+#!/bin/sh
+# horizontal one-line menu on the bar
+set -eu
+CHOICE=$(printf "Lock\nKill\nExit\nSuspend\nReboot\nPoweroff" | dmenu -p "Power:")
+case "$CHOICE" in
+Lock) command -v slock >/dev/null && slock || xset dpms force off ;;
+Kill)
+	pid=$(ps -u "$USER" -o pid,comm,%cpu,%mem --sort=-%cpu \
+		| dmenu -p "Kill:" \
+		| awk '{print $1}')
+	[ -n "${pid:-}" ] && kill "$pid"
+	;;
+Exit) killall vxwm ;;
+Suspend) systemctl suspend ;;
+Reboot) systemctl reboot ;;
+Poweroff) systemctl poweroff ;;
+esac
