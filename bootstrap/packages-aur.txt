@@ -1,5 +1,13 @@
 ghgrab-bin
 lazyrsync
+libjpeg-turbo-git
+onlyoffice-bin
+python-customtkinter
 python-pywal16
+rate-mirrors-bin
+tg-ws-proxy
+ttf-times-new-roman
 waterfox-bin
+woeusb-ng
 yay-bin
+yay-bin-debug

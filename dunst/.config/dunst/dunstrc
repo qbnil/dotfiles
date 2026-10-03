@@ -1,0 +1,31 @@
+[global]
+monitor = HDMI-0
+frame_color = "#0d0c0b"
+separator_color = frame
+notification_limit = 6
+origin = top-right
+offset = 10x10
+icon_corner_radius = 10
+transparency = 0
+frame_width = 1
+width = (0, 400)
+font = "JetBrainsMono Nerd Font 8"
+browser = "waterfox"
+icon_position = "left"
+min_icon_size = 20
+max_icon_size =	40 
+timeout = 8
+
+[urgency_low]
+foreground = "#ccd0d9"
+background = "#212123"
+
+[urgency_normal]
+foreground = "#ccd0d9"
+background = "#212123"
+
+[urgency_critical]
+foreground = "#ccd0d9"
+background = "#212123"
+frame_color = "#8ab4f8"
+

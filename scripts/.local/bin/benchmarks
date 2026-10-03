@@ -1,0 +1,64 @@
+#!/bin/sh
+# Run this ON BATTERY for numbers that match your original complaint.
+#
+# Usage: sh bench-boot.sh
+#
+# Measures two separate things, because they matter differently:
+#   1. "Blocking time" - how long the script itself is stuck before it can
+#      reach `exec vxwm`. This is what determines when your WM (and
+#      whatever draws your bar) can start at all.
+#   2. "Wallpaper-visible time" - how long until the wallpaper on screen is
+#      actually correct, even if it's running in the background and not
+#      blocking anything else.
+
+XRES="$HOME/.Xresources"
+XRDB_EXTRA="$HOME/.cache/wal/xrdb_extra"
+CACHE_WALL="$HOME/.cache/wal/wal"
+
+ms() { awk -v a="$1" -v b="$2" 'BEGIN{printf "%.1f ms", (b-a)*1000}'; }
+
+echo "########################################"
+echo "# OLD approach (xrdb -merge + wal -R, both blocking)"
+echo "########################################"
+for i in 1 2 3 4 5; do
+    t0=$(date +%s.%N)
+    xrdb -merge "$XRES" 2>/dev/null
+    wal -R >/dev/null 2>&1
+    t1=$(date +%s.%N)
+    printf "  run %d - blocking time: %s\n" "$i" "$(ms "$t0" "$t1")"
+done
+
+echo
+echo "########################################"
+echo "# NEW approach"
+echo "########################################"
+echo "-- Blocking part (cached xrdb merge, synchronous) --"
+for i in 1 2 3 4 5; do
+    t0=$(date +%s.%N)
+    cat "$XRES" "$XRDB_EXTRA" 2>/dev/null | xrdb -merge
+    t1=$(date +%s.%N)
+    printf "  run %d - blocking time: %s\n" "$i" "$(ms "$t0" "$t1")"
+done
+
+echo
+echo "-- Backgrounded part (xwallpaper, does NOT block exec vxwm) --"
+if ! command -v xwallpaper >/dev/null 2>&1; then
+    echo "  xwallpaper not installed - skipping."
+elif [ ! -s "$CACHE_WALL" ]; then
+    echo "  No $CACHE_WALL found - skipping."
+else
+    for i in 1 2 3 4 5; do
+        t0=$(date +%s.%N)
+        xwallpaper --zoom "$(cat "$CACHE_WALL")" >/dev/null 2>&1
+        t1=$(date +%s.%N)
+        printf "  run %d - wallpaper-visible time: %s\n" "$i" "$(ms "$t0" "$t1")"
+    done
+fi
+
+echo
+echo "########################################"
+echo "# Summary"
+echo "########################################"
+echo "OLD: WM start was gated on the full blocking time above (xrdb + wal -R)."
+echo "NEW: WM start is gated only on the cached-xrdb blocking time."
+echo "     Wallpaper lands separately, in parallel, bounded by the xwallpaper number."

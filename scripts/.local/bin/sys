@@ -1,0 +1,60 @@
+#!/bin/sh
+# Power menu for dmenu (vxwm). Uses your own dmenu theme/colors/font.
+# Icons are Nerd Font glyphs; set ICONS=0 for plain text.
+ICONS="${ICONS:-1}"
+
+if [ "$ICONS" = 1 ]; then
+	I_LOCK="  "; I_KILL="  "; I_EXIT="  "
+	I_SUSP="  "; I_REBOOT="  "; I_OFF="  "
+else
+	I_LOCK=""; I_KILL=""; I_EXIT=""; I_SUSP=""; I_REBOOT=""; I_OFF=""
+fi
+
+# Process list: "name  [pid]  cpu%  mem%", sorted by CPU then memory, highest first.
+# (No reliance on $USER/$LOGNAME, which are often unset when launched from a WM.)
+list_procs() {
+	LC_ALL=C ps -u "$(id -u)" -o pid=,pcpu=,pmem=,comm= 2>/dev/null ||
+		LC_ALL=C ps -eo pid=,pcpu=,pmem=,comm= 2>/dev/null ||
+		ps -o pid=,comm= 2>/dev/null
+}
+
+kill_menu() {
+	LIST=$(list_procs | LC_ALL=C sort -k2,2nr -k3,3nr | awk -v me="$$" '
+		NF >= 4 {
+			pid = $1; cpu = $2; mem = $3
+			$1 = $2 = $3 = ""; sub(/^ +/, "")
+			if ($0 ~ /^(ps|awk|sort|dmenu|id)$/ || pid == me) next
+			printf "%-24.24s  [%s]  %5s%% cpu  %5s%% mem\n", $0, pid, cpu, mem
+		}')
+
+	if [ -z "$LIST" ]; then
+		printf 'No processes found' | dmenu -i -p "Kill:" >/dev/null
+		exit 0
+	fi
+
+	PICK=$(printf '%s\n' "$LIST" | dmenu -i -l 15 -p " Kill:") || exit 0
+	PID=$(printf '%s' "$PICK" | sed -n 's/.*\[\([0-9][0-9]*\)\].*/\1/p')
+	[ -n "$PID" ] || exit 0
+
+	SIG=$(printf 'Terminate (TERM)\nForce kill (KILL)\nHang up (HUP)' |
+		dmenu -i -l 3 -p "Signal for $PID:") || exit 0
+	case "$SIG" in
+	Terminate*) kill -TERM "$PID" ;;
+	Force*)     kill -KILL "$PID" ;;
+	Hang*)      kill -HUP  "$PID" ;;
+	esac
+}
+
+CHOICE=$(printf '%s\n' \
+	"${I_LOCK}Lock" "${I_KILL}Kill" "${I_EXIT}Exit" \
+	"${I_SUSP}Suspend" "${I_REBOOT}Reboot" "${I_OFF}Poweroff" |
+	dmenu -i -p "Power:") || exit 0
+
+case "$CHOICE" in
+*Lock)     if command -v slock >/dev/null 2>&1; then slock; else xset dpms force off; fi ;;
+*Kill)     kill_menu ;;
+*Exit)     killall vxwm ;;
+*Suspend)  systemctl suspend ;;
+*Reboot)   systemctl reboot ;;
+*Poweroff) systemctl poweroff ;;
+esac

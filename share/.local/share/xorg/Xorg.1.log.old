@@ -1,0 +1,684 @@
+[  7375.082] 
+X.Org X Server 1.21.1.24
+X Protocol Version 11, Revision 0
+[  7375.082] Current Operating System: Linux YOUR_HOSTNAME 7.1.11-zen1-1-zen #1 ZEN SMP PREEMPT_DYNAMIC Fri, 28 Aug 2026 03:35:56 +0000 x86_64
+[  7375.082] Kernel command line: root=PARTUUID=946c6971-ecda-43ce-bd45-a7cebda60526 zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs
+[  7375.082]  
+[  7375.082] Current version of pixman: 0.46.4
+[  7375.082] 	Before reporting problems, check http://wiki.x.org
+	to make sure that you have the latest version.
+[  7375.082] Markers: (--) probed, (**) from config file, (==) default setting,
+	(++) from command line, (!!) notice, (II) informational,
+	(WW) warning, (EE) error, (NI) not implemented, (??) unknown.
+[  7375.083] (==) Log file: "$HOME/.local/share/xorg/Xorg.1.log", Time: Mon Sep  7 10:56:39 2026
+[  7375.083] (==) Using config directory: "/etc/X11/xorg.conf.d"
+[  7375.083] (==) Using system config directory "/usr/share/X11/xorg.conf.d"
+[  7375.083] (==) No Layout section.  Using the first Screen section.
+[  7375.083] (==) No screen section available. Using defaults.
+[  7375.083] (**) |-->Screen "Default Screen Section" (0)
+[  7375.083] (**) |   |-->Monitor "<default monitor>"
+[  7375.083] (==) No monitor specified for screen "Default Screen Section".
+	Using a default monitor configuration.
+[  7375.083] (**) Allowing byte-swapped clients
+[  7375.083] (==) Automatically adding devices
+[  7375.083] (==) Automatically enabling devices
+[  7375.083] (==) Automatically adding GPU devices
+[  7375.083] (==) Automatically binding GPU devices
+[  7375.083] (==) Max clients allowed: 256, resource mask: 0x1fffff
+[  7375.083] (WW) The directory "/usr/share/fonts/Type1" does not exist.
+[  7375.083] 	Entry deleted from font path.
+[  7375.083] (==) FontPath set to:
+	/usr/share/fonts/misc,
+	/usr/share/fonts/TTF,
+	/usr/share/fonts/OTF,
+	/usr/share/fonts/100dpi,
+	/usr/share/fonts/75dpi
+[  7375.083] (==) ModulePath set to "/usr/lib/xorg/modules"
+[  7375.083] (II) The server relies on udev to provide the list of input devices.
+	If no devices become available, reconfigure udev or disable AutoAddDevices.
+[  7375.083] (II) Module ABI versions:
+[  7375.083] 	X.Org ANSI C Emulation: 0.4
+[  7375.083] 	X.Org Video Driver: 25.2
+[  7375.083] 	X.Org XInput driver : 24.4
+[  7375.083] 	X.Org Server Extension : 10.0
+[  7375.083] (++) using VT number 2
+
+[  7375.084] (II) systemd-logind: took control of session /org/freedesktop/login1/session/_33
+[  7375.085] (II) xfree86: Adding drm device (/dev/dri/card1)
+[  7375.085] (II) Platform probe for /sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/drm/card1
+[  7375.085] (II) systemd-logind: got fd for /dev/dri/card1 226:1 fd 13 paused 0
+[  7375.087] (**) OutputClass "nvidia" ModulePath extended to "/usr/lib/nvidia/xorg,/usr/lib/xorg/modules,/usr/lib/xorg/modules"
+[  7375.087] (--) PCI:*(1@0:0:0) 10de:1f91:17aa:3a41 rev 161, Mem @ 0xb2000000/16777216, 0xa0000000/268435456, 0xb0000000/33554432, I/O @ 0x00004000/128, BIOS @ 0x????????/524288
+[  7375.087] (II) LoadModule: "glx"
+[  7375.087] (II) Loading /usr/lib/xorg/modules/extensions/libglx.so
+[  7375.088] (II) Module glx: vendor="X.Org Foundation"
+[  7375.088] 	compiled for 1.21.1.24, module version = 1.0.0
+[  7375.088] 	ABI class: X.Org Server Extension, version 10.0
+[  7375.088] (II) Applying OutputClass "nvidia" to /dev/dri/card1
+[  7375.088] 	loading driver: nvidia
+[  7375.088] (==) Matched nvidia as autoconfigured driver 0
+[  7375.088] (==) Matched nouveau as autoconfigured driver 1
+[  7375.088] (==) Matched nv as autoconfigured driver 2
+[  7375.088] (==) Matched modesetting as autoconfigured driver 3
+[  7375.088] (==) Matched fbdev as autoconfigured driver 4
+[  7375.088] (==) Matched vesa as autoconfigured driver 5
+[  7375.088] (==) Assigned the driver to the xf86ConfigLayout
+[  7375.088] (II) LoadModule: "nvidia"
+[  7375.088] (II) Loading /usr/lib/xorg/modules/drivers/nvidia_drv.so
+[  7375.089] (II) Module nvidia: vendor="NVIDIA Corporation"
+[  7375.089] 	compiled for 1.16.99.901, module version = 1.0.0
+[  7375.089] 	Module class: X.Org Video Driver
+[  7375.089] (II) LoadModule: "nouveau"
+[  7375.089] (WW) Warning, couldn't open module nouveau
+[  7375.089] (EE) Failed to load module "nouveau" (module does not exist, 0)
+[  7375.089] (II) LoadModule: "nv"
+[  7375.089] (WW) Warning, couldn't open module nv
+[  7375.089] (EE) Failed to load module "nv" (module does not exist, 0)
+[  7375.089] (II) LoadModule: "modesetting"
+[  7375.089] (II) Loading /usr/lib/xorg/modules/drivers/modesetting_drv.so
+[  7375.089] (II) Module modesetting: vendor="X.Org Foundation"
+[  7375.089] 	compiled for 1.21.1.24, module version = 1.21.1
+[  7375.089] 	Module class: X.Org Video Driver
+[  7375.089] 	ABI class: X.Org Video Driver, version 25.2
+[  7375.089] (II) LoadModule: "fbdev"
+[  7375.089] (WW) Warning, couldn't open module fbdev
+[  7375.089] (EE) Failed to load module "fbdev" (module does not exist, 0)
+[  7375.089] (II) LoadModule: "vesa"
+[  7375.089] (II) Loading /usr/lib/xorg/modules/drivers/vesa_drv.so
+[  7375.090] (II) Module vesa: vendor="X.Org Foundation"
+[  7375.090] 	compiled for 1.21.1.21, module version = 2.6.0
+[  7375.090] 	Module class: X.Org Video Driver
+[  7375.090] 	ABI class: X.Org Video Driver, version 25.2
+[  7375.090] (II) NVIDIA dlloader X Driver  610.57.04  Wed Jul 29 02:30:50 UTC 2026
+[  7375.090] (II) NVIDIA Unified Driver for all Supported NVIDIA GPUs
+[  7375.090] (II) modesetting: Driver for Modesetting Kernel Drivers: kms
+[  7375.090] (II) VESA: driver for VESA chipsets: vesa
+[  7375.090] xf86EnableIO: failed to enable I/O ports access (Operation not permitted)
+[  7375.090] (II) systemd-logind: releasing fd for 226:1
+[  7375.090] (II) Loading sub module "fb"
+[  7375.090] (II) LoadModule: "fb"
+[  7375.090] (II) Module "fb" already built-in
+[  7375.090] (II) Loading sub module "wfb"
+[  7375.090] (II) LoadModule: "wfb"
+[  7375.090] (II) Loading /usr/lib/xorg/modules/libwfb.so
+[  7375.090] (II) Module wfb: vendor="X.Org Foundation"
+[  7375.090] 	compiled for 1.21.1.24, module version = 1.0.0
+[  7375.090] 	ABI class: X.Org ANSI C Emulation, version 0.4
+[  7375.091] (WW) Falling back to old probe method for modesetting
+[  7375.091] (EE) open /dev/dri/card0: No such file or directory
+[  7375.091] (WW) VGA arbiter: cannot open kernel arbiter, no multi-card support
+[  7375.091] (II) NVIDIA(0): Creating default Display subsection in Screen section
+	"Default Screen Section" for depth/fbbpp 24/32
+[  7375.091] (==) NVIDIA(0): Depth 24, (==) framebuffer bpp 32
+[  7375.091] (==) NVIDIA(0): RGB weight 888
+[  7375.091] (==) NVIDIA(0): Default visual is TrueColor
+[  7375.091] (==) NVIDIA(0): Using gamma correction (1.0, 1.0, 1.0)
+[  7375.091] (II) Applying OutputClass "nvidia" options to /dev/dri/card1
+[  7375.091] (**) NVIDIA(0): Option "AllowEmptyInitialConfiguration"
+[  7375.091] (**) NVIDIA(0): Enabling 2D acceleration
+[  7375.091] (II) Loading sub module "glxserver_nvidia"
+[  7375.091] (II) LoadModule: "glxserver_nvidia"
+[  7375.091] (II) Loading /usr/lib/nvidia/xorg/libglxserver_nvidia.so
+[  7375.104] (II) Module glxserver_nvidia: vendor="NVIDIA Corporation"
+[  7375.104] 	compiled for 1.16.99.901, module version = 1.0.0
+[  7375.104] 	Module class: X.Org Server Extension
+[  7375.104] (II) NVIDIA GLX Module  610.57.04  Wed Jul 29 02:31:39 UTC 2026
+[  7375.104] (II) NVIDIA: The X server supports PRIME Render Offload.
+[  7375.109] (--) NVIDIA(0): Valid display device(s) on GPU-0 at PCI:1:0:0
+[  7375.109] (--) NVIDIA(0):     DFP-0 (boot)
+[  7375.109] (--) NVIDIA(0):     DFP-1
+[  7375.121] (II) NVIDIA(0): NVIDIA GPU NVIDIA GeForce GTX 1650 (TU117-A) at PCI:1:0:0
+[  7375.121] (II) NVIDIA(0):     (GPU-0)
+[  7375.121] (--) NVIDIA(0): Memory: 4194304 kBytes
+[  7375.121] (--) NVIDIA(0): VideoBIOS: 90.17.45.00.43
+[  7375.121] (II) NVIDIA(0): Detected PCI Express Link width: 16X
+[  7375.337] (--) NVIDIA(GPU-0): LG Display (DFP-0): connected
+[  7375.337] (--) NVIDIA(GPU-0): LG Display (DFP-0): Internal DisplayPort
+[  7375.337] (--) NVIDIA(GPU-0): LG Display (DFP-0): 2660.0 MHz maximum pixel clock
+[  7375.337] (--) NVIDIA(GPU-0): 
+[  7375.386] (--) NVIDIA(GPU-0): Microstep MAG 255XF (DFP-1): connected
+[  7375.386] (--) NVIDIA(GPU-0): Microstep MAG 255XF (DFP-1): Internal TMDS
+[  7375.386] (--) NVIDIA(GPU-0): Microstep MAG 255XF (DFP-1): 600.0 MHz maximum pixel clock
+[  7375.386] (--) NVIDIA(GPU-0): 
+[  7375.464] (==) NVIDIA(0): 
+[  7375.464] (==) NVIDIA(0): No modes were requested; the default mode "nvidia-auto-select"
+[  7375.464] (==) NVIDIA(0):     will be used as the requested mode.
+[  7375.464] (==) NVIDIA(0): 
+[  7375.471] (II) NVIDIA(0): Validated MetaModes:
+[  7375.471] (II) NVIDIA(0):     "DFP-0:nvidia-auto-select,DFP-1:nvidia-auto-select"
+[  7375.471] (II) NVIDIA(0): Virtual screen size determined to be 3840 x 1080
+[  7375.556] (--) NVIDIA(0): DPI set to (128, 130); computed from "UseEdidDpi" X config
+[  7375.556] (--) NVIDIA(0):     option
+[  7375.556] (II) UnloadModule: "modesetting"
+[  7375.556] (II) Unloading modesetting
+[  7375.556] (II) UnloadModule: "vesa"
+[  7375.556] (II) Unloading vesa
+[  7375.556] (WW) NVIDIA: Failed to bind sideband socket to
+[  7375.556] (WW) NVIDIA:     '/var/run/nvidia-xdriver-29f021c0' Permission denied
+[  7375.557] (II) NVIDIA: Reserving 24576.00 MB of virtual memory for indirect memory
+[  7375.557] (II) NVIDIA:     access.
+[  7375.596] (II) NVIDIA(0): ACPI: failed to connect to the ACPI event daemon; the daemon
+[  7375.596] (II) NVIDIA(0):     may not be running or the "AcpidSocketPath" X
+[  7375.596] (II) NVIDIA(0):     configuration option may not be set correctly.  When the
+[  7375.596] (II) NVIDIA(0):     ACPI event daemon is available, the NVIDIA X driver will
+[  7375.596] (II) NVIDIA(0):     try to use it to receive ACPI event notifications.  For
+[  7375.596] (II) NVIDIA(0):     details, please see the "ConnectToAcpid" and
+[  7375.596] (II) NVIDIA(0):     "AcpidSocketPath" X configuration options in Appendix B: X
+[  7375.596] (II) NVIDIA(0):     Config Options in the README.
+[  7375.622] (II) NVIDIA(0): Setting mode "DFP-0:nvidia-auto-select,DFP-1:nvidia-auto-select"
+[  7376.557] (II) NVIDIA(0): Disabling shared memory pixmaps
+[  7376.557] (==) NVIDIA(0): Backing store enabled
+[  7376.557] (==) NVIDIA(0): Silken mouse enabled
+[  7376.557] (==) NVIDIA(0): DPMS enabled
+[  7376.557] (II) Loading sub module "dri2"
+[  7376.557] (II) LoadModule: "dri2"
+[  7376.557] (II) Module "dri2" already built-in
+[  7376.557] (II) NVIDIA(0): [DRI2] Setup complete
+[  7376.557] (II) NVIDIA(0): [DRI2]   VDPAU driver: nvidia
+[  7376.557] (II) Initializing extension Generic Event Extension
+[  7376.557] (II) Initializing extension SHAPE
+[  7376.558] (II) Initializing extension MIT-SHM
+[  7376.558] (II) Initializing extension XInputExtension
+[  7376.558] (II) Initializing extension XTEST
+[  7376.558] (II) Initializing extension BIG-REQUESTS
+[  7376.558] (II) Initializing extension SYNC
+[  7376.558] (II) Initializing extension XKEYBOARD
+[  7376.558] (II) Initializing extension XC-MISC
+[  7376.558] (II) Initializing extension SECURITY
+[  7376.558] (II) Initializing extension XFIXES
+[  7376.558] (II) Initializing extension RENDER
+[  7376.559] (II) Initializing extension RANDR
+[  7376.559] (II) Initializing extension COMPOSITE
+[  7376.559] (II) Initializing extension DAMAGE
+[  7376.559] (II) Initializing extension MIT-SCREEN-SAVER
+[  7376.559] (II) Initializing extension DOUBLE-BUFFER
+[  7376.559] (II) Initializing extension RECORD
+[  7376.559] (II) Initializing extension DPMS
+[  7376.559] (II) Initializing extension Present
+[  7376.559] (II) Initializing extension DRI3
+[  7376.559] (II) Initializing extension X-Resource
+[  7376.559] (II) Initializing extension XVideo
+[  7376.560] (II) Initializing extension XVideo-MotionCompensation
+[  7376.560] (II) Initializing extension GLX
+[  7376.560] (II) Initializing extension GLX
+[  7376.560] (II) Indirect GLX disabled.
+[  7376.560] (II) GLX: Another vendor is already registered for screen 0
+[  7376.560] (II) Initializing extension XFree86-VidModeExtension
+[  7376.560] (II) Initializing extension XFree86-DGA
+[  7376.560] (II) Initializing extension XFree86-DRI
+[  7376.560] (II) Initializing extension DRI2
+[  7376.560] (II) Initializing extension NV-GLX
+[  7376.560] (II) Initializing extension NV-CONTROL
+[  7376.560] (II) Initializing extension XINERAMA
+[  7376.681] (II) config/udev: Adding input device HDA NVidia HDMI/DP,pcm=3 (/dev/input/event18)
+[  7376.681] (II) No input driver specified, ignoring this device.
+[  7376.681] (II) This device may have been added with another device file.
+[  7376.682] (II) config/udev: Adding input device HDA NVidia HDMI/DP,pcm=7 (/dev/input/event19)
+[  7376.682] (II) No input driver specified, ignoring this device.
+[  7376.682] (II) This device may have been added with another device file.
+[  7376.682] (II) config/udev: Adding input device HDA NVidia HDMI/DP,pcm=8 (/dev/input/event20)
+[  7376.682] (II) No input driver specified, ignoring this device.
+[  7376.682] (II) This device may have been added with another device file.
+[  7376.683] (II) config/udev: Adding input device HDA NVidia HDMI/DP,pcm=9 (/dev/input/event21)
+[  7376.683] (II) No input driver specified, ignoring this device.
+[  7376.683] (II) This device may have been added with another device file.
+[  7376.683] (II) config/udev: Adding input device Video Bus (/dev/input/event8)
+[  7376.683] (**) Video Bus: Applying InputClass "libinput keyboard catchall"
+[  7376.683] (**) Video Bus: Applying InputClass "system-keyboard"
+[  7376.683] (II) LoadModule: "libinput"
+[  7376.683] (II) Loading /usr/lib/xorg/modules/input/libinput_drv.so
+[  7376.685] (II) Module libinput: vendor="X.Org Foundation"
+[  7376.685] 	compiled for 1.21.1.13, module version = 1.5.0
+[  7376.685] 	Module class: X.Org XInput Driver
+[  7376.685] 	ABI class: X.Org XInput driver, version 24.4
+[  7376.685] (II) Using input driver 'libinput' for 'Video Bus'
+[  7376.686] (II) systemd-logind: got fd for /dev/input/event8 13:72 fd 39 paused 0
+[  7376.686] (**) Video Bus: always reports core events
+[  7376.686] (**) Option "Device" "/dev/input/event8"
+[  7376.688] (II) event8  - Video Bus: is tagged by udev as: Keyboard
+[  7376.688] (II) event8  - Video Bus: device is a keyboard
+[  7376.689] (II) event8  - Video Bus: device removed
+[  7376.689] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:01.0/acpi.video_bus.0/input/input10/event8"
+[  7376.689] (II) XINPUT: Adding extended input device "Video Bus" (type: KEYBOARD, id 6)
+[  7376.689] (**) Option "xkb_model" "pc105+inet"
+[  7376.689] (**) Option "xkb_layout" "us"
+[  7376.689] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.709] (II) event8  - Video Bus: is tagged by udev as: Keyboard
+[  7376.709] (II) event8  - Video Bus: device is a keyboard
+[  7376.710] (II) config/udev: Adding input device HFD ZH870 Gaming Keyboard (/dev/input/event13)
+[  7376.710] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "libinput keyboard catchall"
+[  7376.710] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "system-keyboard"
+[  7376.710] (II) Using input driver 'libinput' for 'HFD ZH870 Gaming Keyboard'
+[  7376.711] (II) systemd-logind: got fd for /dev/input/event13 13:77 fd 42 paused 0
+[  7376.711] (**) HFD ZH870 Gaming Keyboard: always reports core events
+[  7376.711] (**) Option "Device" "/dev/input/event13"
+[  7376.712] (II) event13 - HFD ZH870 Gaming Keyboard: is tagged by udev as: Keyboard
+[  7376.712] (II) event13 - HFD ZH870 Gaming Keyboard: device is a keyboard
+[  7376.712] (II) event13 - HFD ZH870 Gaming Keyboard: device removed
+[  7376.712] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1.2/1-1.2:1.0/0003:05AC:024F.0004/input/input13/event13"
+[  7376.713] (II) XINPUT: Adding extended input device "HFD ZH870 Gaming Keyboard" (type: KEYBOARD, id 7)
+[  7376.713] (**) Option "xkb_model" "pc105+inet"
+[  7376.713] (**) Option "xkb_layout" "us"
+[  7376.713] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.714] (II) event13 - HFD ZH870 Gaming Keyboard: is tagged by udev as: Keyboard
+[  7376.714] (II) event13 - HFD ZH870 Gaming Keyboard: device is a keyboard
+[  7376.716] (II) config/udev: Adding input device HFD ZH870 Gaming Keyboard (/dev/input/event14)
+[  7376.716] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "libinput pointer catchall"
+[  7376.716] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "libinput keyboard catchall"
+[  7376.716] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "compx L7 Air"
+[  7376.716] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "system-keyboard"
+[  7376.716] (II) Using input driver 'libinput' for 'HFD ZH870 Gaming Keyboard'
+[  7376.716] (II) systemd-logind: got fd for /dev/input/event14 13:78 fd 43 paused 0
+[  7376.716] (**) HFD ZH870 Gaming Keyboard: always reports core events
+[  7376.716] (**) Option "Device" "/dev/input/event14"
+[  7376.718] (II) event14 - HFD ZH870 Gaming Keyboard: is tagged by udev as: Keyboard Mouse
+[  7376.718] (II) event14 - HFD ZH870 Gaming Keyboard: device is a pointer
+[  7376.718] (II) event14 - HFD ZH870 Gaming Keyboard: device is a keyboard
+[  7376.719] (II) event14 - HFD ZH870 Gaming Keyboard: device removed
+[  7376.719] (**) Option "AccelProfile" "flat"
+[  7376.719] (II) libinput: HFD ZH870 Gaming Keyboard: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.719] (II) libinput: HFD ZH870 Gaming Keyboard: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.719] (II) libinput: HFD ZH870 Gaming Keyboard: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.719] (II) libinput: HFD ZH870 Gaming Keyboard: needs a virtual subdevice
+[  7376.719] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1.2/1-1.2:1.1/0003:05AC:024F.0005/input/input14/event14"
+[  7376.719] (II) XINPUT: Adding extended input device "HFD ZH870 Gaming Keyboard" (type: MOUSE, id 8)
+[  7376.719] (**) Option "AccelerationScheme" "none"
+[  7376.719] (**) HFD ZH870 Gaming Keyboard: (accel) selected scheme none/0
+[  7376.719] (**) HFD ZH870 Gaming Keyboard: (accel) acceleration factor: 2.000
+[  7376.719] (**) HFD ZH870 Gaming Keyboard: (accel) acceleration threshold: 4
+[  7376.720] (II) event14 - HFD ZH870 Gaming Keyboard: is tagged by udev as: Keyboard Mouse
+[  7376.721] (II) event14 - HFD ZH870 Gaming Keyboard: device is a pointer
+[  7376.721] (II) event14 - HFD ZH870 Gaming Keyboard: device is a keyboard
+[  7376.722] (II) config/udev: Adding input device HFD ZH870 Gaming Keyboard (/dev/input/mouse1)
+[  7376.722] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "compx L7 Air"
+[  7376.722] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "system-keyboard"
+[  7376.722] (II) Using input driver 'libinput' for 'HFD ZH870 Gaming Keyboard'
+[  7376.722] (**) HFD ZH870 Gaming Keyboard: always reports core events
+[  7376.722] (**) Option "Device" "/dev/input/mouse1"
+[  7376.722] (EE) xf86OpenSerial: Cannot open device /dev/input/mouse1
+	Permission denied.
+[  7376.722] (II) mouse1: opening input device '/dev/input/mouse1' failed (Permission denied).
+[  7376.722] (II) mouse1  - failed to create input device '/dev/input/mouse1'.
+[  7376.722] (EE) libinput: HFD ZH870 Gaming Keyboard: Failed to create a device for /dev/input/mouse1
+[  7376.722] (EE) PreInit returned 2 for "HFD ZH870 Gaming Keyboard"
+[  7376.722] (II) UnloadModule: "libinput"
+[  7376.723] (II) config/udev: Adding input device ME6S MS_N-B R-UN +3db ME6S (/dev/input/event12)
+[  7376.723] (**) ME6S MS_N-B R-UN +3db ME6S: Applying InputClass "libinput keyboard catchall"
+[  7376.723] (**) ME6S MS_N-B R-UN +3db ME6S: Applying InputClass "system-keyboard"
+[  7376.723] (II) Using input driver 'libinput' for 'ME6S MS_N-B R-UN +3db ME6S'
+[  7376.724] (II) systemd-logind: got fd for /dev/input/event12 13:76 fd 44 paused 0
+[  7376.724] (**) ME6S MS_N-B R-UN +3db ME6S: always reports core events
+[  7376.724] (**) Option "Device" "/dev/input/event12"
+[  7376.725] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: is tagged by udev as: Keyboard
+[  7376.726] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: device is a keyboard
+[  7376.726] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: device removed
+[  7376.726] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1.4/1-1.4:1.3/0003:0C76:9688.0007/input/input12/event12"
+[  7376.726] (II) XINPUT: Adding extended input device "ME6S MS_N-B R-UN +3db ME6S" (type: KEYBOARD, id 9)
+[  7376.726] (**) Option "xkb_model" "pc105+inet"
+[  7376.726] (**) Option "xkb_layout" "us"
+[  7376.726] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.727] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: is tagged by udev as: Keyboard
+[  7376.728] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: device is a keyboard
+[  7376.729] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/event3)
+[  7376.729] (**) Compx 2.4G Wireless Receiver: Applying InputClass "libinput keyboard catchall"
+[  7376.729] (**) Compx 2.4G Wireless Receiver: Applying InputClass "system-keyboard"
+[  7376.729] (II) Using input driver 'libinput' for 'Compx 2.4G Wireless Receiver'
+[  7376.729] (II) systemd-logind: got fd for /dev/input/event3 13:67 fd 45 paused 0
+[  7376.729] (**) Compx 2.4G Wireless Receiver: always reports core events
+[  7376.729] (**) Option "Device" "/dev/input/event3"
+[  7376.731] (II) event3  - Compx 2.4G Wireless Receiver: is tagged by udev as: Keyboard
+[  7376.731] (II) event3  - Compx 2.4G Wireless Receiver: device is a keyboard
+[  7376.731] (II) event3  - Compx 2.4G Wireless Receiver: device removed
+[  7376.731] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.0/0003:3554:F54F.0001/input/input3/event3"
+[  7376.731] (II) XINPUT: Adding extended input device "Compx 2.4G Wireless Receiver" (type: KEYBOARD, id 10)
+[  7376.731] (**) Option "xkb_model" "pc105+inet"
+[  7376.731] (**) Option "xkb_layout" "us"
+[  7376.731] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.733] (II) event3  - Compx 2.4G Wireless Receiver: is tagged by udev as: Keyboard
+[  7376.733] (II) event3  - Compx 2.4G Wireless Receiver: device is a keyboard
+[  7376.734] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/event4)
+[  7376.734] (II) No input driver specified, ignoring this device.
+[  7376.734] (II) This device may have been added with another device file.
+[  7376.735] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/event5)
+[  7376.735] (II) No input driver specified, ignoring this device.
+[  7376.735] (II) This device may have been added with another device file.
+[  7376.735] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver Consumer Control (/dev/input/event6)
+[  7376.735] (**) Compx 2.4G Wireless Receiver Consumer Control: Applying InputClass "libinput keyboard catchall"
+[  7376.735] (**) Compx 2.4G Wireless Receiver Consumer Control: Applying InputClass "system-keyboard"
+[  7376.735] (II) Using input driver 'libinput' for 'Compx 2.4G Wireless Receiver Consumer Control'
+[  7376.736] (II) systemd-logind: got fd for /dev/input/event6 13:70 fd 46 paused 0
+[  7376.736] (**) Compx 2.4G Wireless Receiver Consumer Control: always reports core events
+[  7376.736] (**) Option "Device" "/dev/input/event6"
+[  7376.738] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: is tagged by udev as: Keyboard
+[  7376.738] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: device is a keyboard
+[  7376.738] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: device removed
+[  7376.738] (II) libinput: Compx 2.4G Wireless Receiver Consumer Control: needs a virtual subdevice
+[  7376.738] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.1/0003:3554:F54F.0002/input/input6/event6"
+[  7376.738] (II) XINPUT: Adding extended input device "Compx 2.4G Wireless Receiver Consumer Control" (type: MOUSE, id 11)
+[  7376.738] (**) Option "AccelerationScheme" "none"
+[  7376.738] (**) Compx 2.4G Wireless Receiver Consumer Control: (accel) selected scheme none/0
+[  7376.738] (**) Compx 2.4G Wireless Receiver Consumer Control: (accel) acceleration factor: 2.000
+[  7376.738] (**) Compx 2.4G Wireless Receiver Consumer Control: (accel) acceleration threshold: 4
+[  7376.740] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: is tagged by udev as: Keyboard
+[  7376.740] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: device is a keyboard
+[  7376.741] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver System Control (/dev/input/event7)
+[  7376.741] (**) Compx 2.4G Wireless Receiver System Control: Applying InputClass "libinput keyboard catchall"
+[  7376.741] (**) Compx 2.4G Wireless Receiver System Control: Applying InputClass "system-keyboard"
+[  7376.741] (II) Using input driver 'libinput' for 'Compx 2.4G Wireless Receiver System Control'
+[  7376.742] (II) systemd-logind: got fd for /dev/input/event7 13:71 fd 47 paused 0
+[  7376.742] (**) Compx 2.4G Wireless Receiver System Control: always reports core events
+[  7376.742] (**) Option "Device" "/dev/input/event7"
+[  7376.743] (II) event7  - Compx 2.4G Wireless Receiver System Control: is tagged by udev as: Keyboard
+[  7376.743] (II) event7  - Compx 2.4G Wireless Receiver System Control: device is a keyboard
+[  7376.743] (II) event7  - Compx 2.4G Wireless Receiver System Control: device removed
+[  7376.743] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.1/0003:3554:F54F.0002/input/input7/event7"
+[  7376.743] (II) XINPUT: Adding extended input device "Compx 2.4G Wireless Receiver System Control" (type: KEYBOARD, id 12)
+[  7376.743] (**) Option "xkb_model" "pc105+inet"
+[  7376.743] (**) Option "xkb_layout" "us"
+[  7376.743] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.745] (II) event7  - Compx 2.4G Wireless Receiver System Control: is tagged by udev as: Keyboard
+[  7376.745] (II) event7  - Compx 2.4G Wireless Receiver System Control: device is a keyboard
+[  7376.746] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/event9)
+[  7376.746] (II) No input driver specified, ignoring this device.
+[  7376.746] (II) This device may have been added with another device file.
+[  7376.747] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/event10)
+[  7376.747] (II) No input driver specified, ignoring this device.
+[  7376.747] (II) This device may have been added with another device file.
+[  7376.748] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/event11)
+[  7376.748] (**) Compx 2.4G Wireless Receiver: Applying InputClass "libinput pointer catchall"
+[  7376.748] (**) Compx 2.4G Wireless Receiver: Applying InputClass "compx L7 Air"
+[  7376.748] (II) Using input driver 'libinput' for 'Compx 2.4G Wireless Receiver'
+[  7376.748] (II) systemd-logind: got fd for /dev/input/event11 13:75 fd 48 paused 0
+[  7376.748] (**) Compx 2.4G Wireless Receiver: always reports core events
+[  7376.748] (**) Option "Device" "/dev/input/event11"
+[  7376.750] (II) event11 - Compx 2.4G Wireless Receiver: is tagged by udev as: Mouse
+[  7376.750] (II) event11 - Compx 2.4G Wireless Receiver: device is a pointer
+[  7376.750] (II) event11 - Compx 2.4G Wireless Receiver: device removed
+[  7376.750] (**) Option "AccelProfile" "flat"
+[  7376.750] (II) libinput: Compx 2.4G Wireless Receiver: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.750] (II) libinput: Compx 2.4G Wireless Receiver: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.750] (II) libinput: Compx 2.4G Wireless Receiver: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.750] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.2/0003:3554:F54F.0003/input/input11/event11"
+[  7376.750] (II) XINPUT: Adding extended input device "Compx 2.4G Wireless Receiver" (type: MOUSE, id 13)
+[  7376.750] (**) Option "AccelerationScheme" "none"
+[  7376.750] (**) Compx 2.4G Wireless Receiver: (accel) selected scheme none/0
+[  7376.750] (**) Compx 2.4G Wireless Receiver: (accel) acceleration factor: 2.000
+[  7376.750] (**) Compx 2.4G Wireless Receiver: (accel) acceleration threshold: 4
+[  7376.752] (II) event11 - Compx 2.4G Wireless Receiver: is tagged by udev as: Mouse
+[  7376.752] (II) event11 - Compx 2.4G Wireless Receiver: device is a pointer
+[  7376.753] (II) config/udev: Adding input device Compx 2.4G Wireless Receiver (/dev/input/mouse0)
+[  7376.753] (**) Compx 2.4G Wireless Receiver: Applying InputClass "compx L7 Air"
+[  7376.753] (II) Using input driver 'libinput' for 'Compx 2.4G Wireless Receiver'
+[  7376.753] (**) Compx 2.4G Wireless Receiver: always reports core events
+[  7376.753] (**) Option "Device" "/dev/input/mouse0"
+[  7376.753] (EE) xf86OpenSerial: Cannot open device /dev/input/mouse0
+	Permission denied.
+[  7376.753] (II) mouse0: opening input device '/dev/input/mouse0' failed (Permission denied).
+[  7376.753] (II) mouse0  - failed to create input device '/dev/input/mouse0'.
+[  7376.753] (EE) libinput: Compx 2.4G Wireless Receiver: Failed to create a device for /dev/input/mouse0
+[  7376.753] (EE) PreInit returned 2 for "Compx 2.4G Wireless Receiver"
+[  7376.753] (II) UnloadModule: "libinput"
+[  7376.754] (II) config/udev: Adding input device Elan Touchpad (/dev/input/event16)
+[  7376.754] (**) Elan Touchpad: Applying InputClass "libinput touchpad catchall"
+[  7376.754] (II) Using input driver 'libinput' for 'Elan Touchpad'
+[  7376.755] (II) systemd-logind: got fd for /dev/input/event16 13:80 fd 49 paused 0
+[  7376.755] (**) Elan Touchpad: always reports core events
+[  7376.755] (**) Option "Device" "/dev/input/event16"
+[  7376.756] (II) event16 - Elan Touchpad: is tagged by udev as: Touchpad
+[  7376.758] (II) event16 - Elan Touchpad: device is a touchpad
+[  7376.758] (II) event16 - Elan Touchpad: device removed
+[  7376.758] (II) libinput: Elan Touchpad: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.758] (II) libinput: Elan Touchpad: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.758] (II) libinput: Elan Touchpad: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.758] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:15.1/i2c_designware.1/i2c-1/i2c-ELAN0626:00/input/input16/event16"
+[  7376.758] (II) XINPUT: Adding extended input device "Elan Touchpad" (type: TOUCHPAD, id 14)
+[  7376.760] (**) Option "AccelerationScheme" "none"
+[  7376.760] (**) Elan Touchpad: (accel) selected scheme none/0
+[  7376.760] (**) Elan Touchpad: (accel) acceleration factor: 2.000
+[  7376.760] (**) Elan Touchpad: (accel) acceleration threshold: 4
+[  7376.761] (II) event16 - Elan Touchpad: is tagged by udev as: Touchpad
+[  7376.763] (II) event16 - Elan Touchpad: device is a touchpad
+[  7376.764] (II) config/udev: Adding input device Elan Touchpad (/dev/input/mouse2)
+[  7376.764] (II) No input driver specified, ignoring this device.
+[  7376.764] (II) This device may have been added with another device file.
+[  7376.765] (II) config/udev: Adding input device Ideapad extra buttons (/dev/input/event15)
+[  7376.765] (**) Ideapad extra buttons: Applying InputClass "libinput keyboard catchall"
+[  7376.765] (**) Ideapad extra buttons: Applying InputClass "system-keyboard"
+[  7376.765] (II) Using input driver 'libinput' for 'Ideapad extra buttons'
+[  7376.765] (II) systemd-logind: got fd for /dev/input/event15 13:79 fd 50 paused 0
+[  7376.765] (**) Ideapad extra buttons: always reports core events
+[  7376.765] (**) Option "Device" "/dev/input/event15"
+[  7376.766] (II) event15 - Ideapad extra buttons: is tagged by udev as: Keyboard
+[  7376.766] (II) event15 - Ideapad extra buttons: device is a keyboard
+[  7376.766] (II) event15 - Ideapad extra buttons: device removed
+[  7376.767] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:1f.0/PNP0C09:00/VPC2004:00/input/input15/event15"
+[  7376.767] (II) XINPUT: Adding extended input device "Ideapad extra buttons" (type: KEYBOARD, id 15)
+[  7376.767] (**) Option "xkb_model" "pc105+inet"
+[  7376.767] (**) Option "xkb_layout" "us"
+[  7376.767] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.768] (II) event15 - Ideapad extra buttons: is tagged by udev as: Keyboard
+[  7376.768] (II) event15 - Ideapad extra buttons: device is a keyboard
+[  7376.768] (II) config/udev: Adding input device HDA Intel PCH Mic (/dev/input/event22)
+[  7376.768] (II) No input driver specified, ignoring this device.
+[  7376.768] (II) This device may have been added with another device file.
+[  7376.769] (II) config/udev: Adding input device HDA Intel PCH Headphone (/dev/input/event23)
+[  7376.769] (II) No input driver specified, ignoring this device.
+[  7376.769] (II) This device may have been added with another device file.
+[  7376.769] (II) config/udev: Adding input device Power Button (/dev/input/event1)
+[  7376.769] (**) Power Button: Applying InputClass "libinput keyboard catchall"
+[  7376.769] (**) Power Button: Applying InputClass "system-keyboard"
+[  7376.769] (II) Using input driver 'libinput' for 'Power Button'
+[  7376.770] (II) systemd-logind: got fd for /dev/input/event1 13:65 fd 51 paused 0
+[  7376.770] (**) Power Button: always reports core events
+[  7376.770] (**) Option "Device" "/dev/input/event1"
+[  7376.771] (II) event1  - Power Button: is tagged by udev as: Keyboard
+[  7376.771] (II) event1  - Power Button: device is a keyboard
+[  7376.771] (II) event1  - Power Button: device removed
+[  7376.771] (**) Option "config_info" "udev:/sys/devices/platform/PNP0C0C:00/input/input1/event1"
+[  7376.771] (II) XINPUT: Adding extended input device "Power Button" (type: KEYBOARD, id 16)
+[  7376.771] (**) Option "xkb_model" "pc105+inet"
+[  7376.771] (**) Option "xkb_layout" "us"
+[  7376.771] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.772] (II) event1  - Power Button: is tagged by udev as: Keyboard
+[  7376.772] (II) event1  - Power Button: device is a keyboard
+[  7376.772] (II) config/udev: Adding input device Lid Switch (/dev/input/event0)
+[  7376.772] (II) No input driver specified, ignoring this device.
+[  7376.772] (II) This device may have been added with another device file.
+[  7376.773] (II) config/udev: Adding input device AT Translated Set 2 keyboard (/dev/input/event2)
+[  7376.773] (**) AT Translated Set 2 keyboard: Applying InputClass "libinput keyboard catchall"
+[  7376.773] (**) AT Translated Set 2 keyboard: Applying InputClass "system-keyboard"
+[  7376.773] (II) Using input driver 'libinput' for 'AT Translated Set 2 keyboard'
+[  7376.774] (II) systemd-logind: got fd for /dev/input/event2 13:66 fd 52 paused 0
+[  7376.774] (**) AT Translated Set 2 keyboard: always reports core events
+[  7376.774] (**) Option "Device" "/dev/input/event2"
+[  7376.775] (II) event2  - AT Translated Set 2 keyboard: is tagged by udev as: Keyboard
+[  7376.775] (II) event2  - AT Translated Set 2 keyboard: device is a keyboard
+[  7376.776] (II) event2  - AT Translated Set 2 keyboard: device removed
+[  7376.776] (**) Option "config_info" "udev:/sys/devices/platform/i8042/serio0/input/input2/event2"
+[  7376.776] (II) XINPUT: Adding extended input device "AT Translated Set 2 keyboard" (type: KEYBOARD, id 17)
+[  7376.776] (**) Option "xkb_model" "pc105+inet"
+[  7376.776] (**) Option "xkb_layout" "us"
+[  7376.776] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.777] (II) event2  - AT Translated Set 2 keyboard: is tagged by udev as: Keyboard
+[  7376.777] (II) event2  - AT Translated Set 2 keyboard: device is a keyboard
+[  7376.779] (II) config/udev: Adding input device PC Speaker (/dev/input/event17)
+[  7376.779] (II) No input driver specified, ignoring this device.
+[  7376.779] (II) This device may have been added with another device file.
+[  7376.786] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "libinput pointer catchall"
+[  7376.786] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "libinput keyboard catchall"
+[  7376.786] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "compx L7 Air"
+[  7376.786] (**) HFD ZH870 Gaming Keyboard: Applying InputClass "system-keyboard"
+[  7376.786] (II) Using input driver 'libinput' for 'HFD ZH870 Gaming Keyboard'
+[  7376.786] (II) systemd-logind: returning pre-existing fd for /dev/input/event14 13:78
+[  7376.786] (**) HFD ZH870 Gaming Keyboard: always reports core events
+[  7376.786] (**) Option "Device" "/dev/input/event14"
+[  7376.786] (II) libinput: HFD ZH870 Gaming Keyboard: is a virtual subdevice
+[  7376.786] (**) Option "AccelProfile" "flat"
+[  7376.786] (II) libinput: HFD ZH870 Gaming Keyboard: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.786] (II) libinput: HFD ZH870 Gaming Keyboard: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.786] (II) libinput: HFD ZH870 Gaming Keyboard: Step value 0 was provided, libinput Fallback acceleration function is used.
+[  7376.786] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1.2/1-1.2:1.1/0003:05AC:024F.0005/input/input14/event14"
+[  7376.786] (II) XINPUT: Adding extended input device "HFD ZH870 Gaming Keyboard" (type: KEYBOARD, id 18)
+[  7376.786] (**) Option "xkb_model" "pc105+inet"
+[  7376.786] (**) Option "xkb_layout" "us"
+[  7376.786] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7376.786] (**) Compx 2.4G Wireless Receiver Consumer Control: Applying InputClass "libinput keyboard catchall"
+[  7376.786] (**) Compx 2.4G Wireless Receiver Consumer Control: Applying InputClass "system-keyboard"
+[  7376.786] (II) Using input driver 'libinput' for 'Compx 2.4G Wireless Receiver Consumer Control'
+[  7376.786] (II) systemd-logind: returning pre-existing fd for /dev/input/event6 13:70
+[  7376.786] (**) Compx 2.4G Wireless Receiver Consumer Control: always reports core events
+[  7376.786] (**) Option "Device" "/dev/input/event6"
+[  7376.786] (II) libinput: Compx 2.4G Wireless Receiver Consumer Control: is a virtual subdevice
+[  7376.786] (**) Option "config_info" "udev:/sys/devices/pci0000:00/0000:00:14.0/usb1/1-3/1-3:1.1/0003:3554:F54F.0002/input/input6/event6"
+[  7376.786] (II) XINPUT: Adding extended input device "Compx 2.4G Wireless Receiver Consumer Control" (type: KEYBOARD, id 19)
+[  7376.786] (**) Option "xkb_model" "pc105+inet"
+[  7376.786] (**) Option "xkb_layout" "us"
+[  7376.786] (**) Option "xkb_options" "terminate:ctrl_alt_bksp"
+[  7682.481] (**) Option "fd" "39"
+[  7682.481] (II) event8  - Video Bus: device removed
+[  7682.482] (**) Option "fd" "42"
+[  7682.482] (II) event13 - HFD ZH870 Gaming Keyboard: device removed
+[  7682.482] (**) Option "fd" "43"
+[  7682.482] (**) Option "fd" "44"
+[  7682.482] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: device removed
+[  7682.482] (**) Option "fd" "45"
+[  7682.482] (II) event3  - Compx 2.4G Wireless Receiver: device removed
+[  7682.482] (**) Option "fd" "46"
+[  7682.482] (**) Option "fd" "47"
+[  7682.482] (II) event7  - Compx 2.4G Wireless Receiver System Control: device removed
+[  7682.482] (**) Option "fd" "48"
+[  7682.482] (II) event11 - Compx 2.4G Wireless Receiver: device removed
+[  7682.482] (**) Option "fd" "49"
+[  7682.482] (II) event16 - Elan Touchpad: device removed
+[  7682.482] (**) Option "fd" "50"
+[  7682.482] (II) event15 - Ideapad extra buttons: device removed
+[  7682.482] (**) Option "fd" "51"
+[  7682.482] (II) event1  - Power Button: device removed
+[  7682.483] (**) Option "fd" "52"
+[  7682.483] (II) event2  - AT Translated Set 2 keyboard: device removed
+[  7682.483] (**) Option "fd" "43"
+[  7682.483] (II) event14 - HFD ZH870 Gaming Keyboard: device removed
+[  7682.483] (**) Option "fd" "46"
+[  7682.483] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: device removed
+[  7683.719] (II) systemd-logind: got pause for 13:79
+[  7683.719] (II) systemd-logind: got pause for 13:77
+[  7683.719] (II) systemd-logind: got pause for 13:70
+[  7683.719] (II) systemd-logind: got pause for 13:78
+[  7683.721] (II) systemd-logind: got pause for 13:67
+[  7683.721] (II) systemd-logind: got pause for 13:65
+[  7683.721] (II) systemd-logind: got pause for 13:76
+[  7683.721] (II) systemd-logind: got pause for 13:75
+[  7683.721] (II) systemd-logind: got pause for 13:80
+[  7683.721] (II) systemd-logind: got pause for 13:66
+[  7683.721] (II) systemd-logind: got pause for 13:72
+[  7683.721] (II) systemd-logind: got pause for 13:71
+[  7688.418] (II) systemd-logind: got resume for 13:79
+[  7688.607] (--) NVIDIA(GPU-0): LG Display (DFP-0): connected
+[  7688.607] (--) NVIDIA(GPU-0): LG Display (DFP-0): Internal DisplayPort
+[  7688.607] (--) NVIDIA(GPU-0): LG Display (DFP-0): 2660.0 MHz maximum pixel clock
+[  7688.607] (--) NVIDIA(GPU-0): 
+[  7688.652] (--) NVIDIA(GPU-0): Microstep MAG 255XF (DFP-1): connected
+[  7688.652] (--) NVIDIA(GPU-0): Microstep MAG 255XF (DFP-1): Internal TMDS
+[  7688.652] (--) NVIDIA(GPU-0): Microstep MAG 255XF (DFP-1): 600.0 MHz maximum pixel clock
+[  7688.652] (--) NVIDIA(GPU-0): 
+[  7688.726] (II) NVIDIA(0): Setting mode "DFP-0:nvidia-auto-select,DFP-1:nvidia-auto-select"
+[  7689.613] (II) NVIDIA(0): ACPI: failed to connect to the ACPI event daemon; the daemon
+[  7689.613] (II) NVIDIA(0):     may not be running or the "AcpidSocketPath" X
+[  7689.613] (II) NVIDIA(0):     configuration option may not be set correctly.  When the
+[  7689.613] (II) NVIDIA(0):     ACPI event daemon is available, the NVIDIA X driver will
+[  7689.613] (II) NVIDIA(0):     try to use it to receive ACPI event notifications.  For
+[  7689.613] (II) NVIDIA(0):     details, please see the "ConnectToAcpid" and
+[  7689.613] (II) NVIDIA(0):     "AcpidSocketPath" X configuration options in Appendix B: X
+[  7689.613] (II) NVIDIA(0):     Config Options in the README.
+[  7689.638] (II) event15 - Ideapad extra buttons: is tagged by udev as: Keyboard
+[  7689.638] (II) event15 - Ideapad extra buttons: device is a keyboard
+[  7689.639] (II) systemd-logind: got resume for 13:77
+[  7689.640] (II) event13 - HFD ZH870 Gaming Keyboard: is tagged by udev as: Keyboard
+[  7689.640] (II) event13 - HFD ZH870 Gaming Keyboard: device is a keyboard
+[  7689.640] (II) systemd-logind: got resume for 13:70
+[  7689.642] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: is tagged by udev as: Keyboard
+[  7689.642] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: device is a keyboard
+[  7689.642] (II) systemd-logind: got resume for 13:78
+[  7689.644] (II) event14 - HFD ZH870 Gaming Keyboard: is tagged by udev as: Keyboard Mouse
+[  7689.644] (II) event14 - HFD ZH870 Gaming Keyboard: device is a pointer
+[  7689.644] (II) event14 - HFD ZH870 Gaming Keyboard: device is a keyboard
+[  7689.648] (II) systemd-logind: got resume for 13:67
+[  7689.650] (II) event3  - Compx 2.4G Wireless Receiver: is tagged by udev as: Keyboard
+[  7689.650] (II) event3  - Compx 2.4G Wireless Receiver: device is a keyboard
+[  7689.654] (II) systemd-logind: got resume for 13:65
+[  7689.655] (II) event1  - Power Button: is tagged by udev as: Keyboard
+[  7689.655] (II) event1  - Power Button: device is a keyboard
+[  7689.655] (II) systemd-logind: got resume for 13:76
+[  7689.657] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: is tagged by udev as: Keyboard
+[  7689.657] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: device is a keyboard
+[  7689.657] (II) systemd-logind: got resume for 13:75
+[  7689.658] (II) event11 - Compx 2.4G Wireless Receiver: is tagged by udev as: Mouse
+[  7689.659] (II) event11 - Compx 2.4G Wireless Receiver: device is a pointer
+[  7689.659] (II) systemd-logind: got resume for 13:80
+[  7689.660] (II) event16 - Elan Touchpad: is tagged by udev as: Touchpad
+[  7689.662] (II) event16 - Elan Touchpad: device is a touchpad
+[  7689.662] (II) systemd-logind: got resume for 13:66
+[  7689.663] (II) event2  - AT Translated Set 2 keyboard: is tagged by udev as: Keyboard
+[  7689.663] (II) event2  - AT Translated Set 2 keyboard: device is a keyboard
+[  7689.665] (II) systemd-logind: got resume for 13:72
+[  7689.665] (II) event8  - Video Bus: is tagged by udev as: Keyboard
+[  7689.666] (II) event8  - Video Bus: device is a keyboard
+[  7689.666] (II) systemd-logind: got resume for 13:71
+[  7689.667] (II) event7  - Compx 2.4G Wireless Receiver System Control: is tagged by udev as: Keyboard
+[  7689.667] (II) event7  - Compx 2.4G Wireless Receiver System Control: device is a keyboard
+[  8109.814] (**) Option "fd" "44"
+[  8109.814] (II) event15 - Ideapad extra buttons: device removed
+[  8109.815] (**) Option "fd" "20"
+[  8109.815] (II) event13 - HFD ZH870 Gaming Keyboard: device removed
+[  8109.815] (**) Option "fd" "39"
+[  8109.815] (**) Option "fd" "39"
+[  8109.815] (II) event6  - Compx 2.4G Wireless Receiver Consumer Control: device removed
+[  8109.815] (**) Option "fd" "42"
+[  8109.815] (**) Option "fd" "42"
+[  8109.815] (II) event14 - HFD ZH870 Gaming Keyboard: device removed
+[  8109.815] (**) Option "fd" "45"
+[  8109.815] (II) event3  - Compx 2.4G Wireless Receiver: device removed
+[  8109.815] (**) Option "fd" "47"
+[  8109.815] (II) event1  - Power Button: device removed
+[  8109.815] (**) Option "fd" "48"
+[  8109.815] (II) event12 - ME6S MS_N-B R-UN +3db ME6S: device removed
+[  8109.815] (**) Option "fd" "49"
+[  8109.815] (II) event11 - Compx 2.4G Wireless Receiver: device removed
+[  8109.815] (**) Option "fd" "50"
+[  8109.815] (II) event16 - Elan Touchpad: device removed
+[  8109.815] (**) Option "fd" "51"
+[  8109.815] (II) event2  - AT Translated Set 2 keyboard: device removed
+[  8109.815] (**) Option "fd" "52"
+[  8109.815] (II) event8  - Video Bus: device removed
+[  8109.815] (**) Option "fd" "66"
+[  8109.815] (II) event7  - Compx 2.4G Wireless Receiver System Control: device removed
+[  8109.819] (II) UnloadModule: "libinput"
+[  8109.819] (II) systemd-logind: releasing fd for 13:71
+[  8109.819] (II) UnloadModule: "libinput"
+[  8109.819] (II) systemd-logind: releasing fd for 13:72
+[  8109.828] (II) UnloadModule: "libinput"
+[  8109.828] (II) systemd-logind: releasing fd for 13:66
+[  8109.828] (II) UnloadModule: "libinput"
+[  8109.828] (II) systemd-logind: releasing fd for 13:80
+[  8109.837] (II) UnloadModule: "libinput"
+[  8109.837] (II) systemd-logind: releasing fd for 13:75
+[  8109.844] (II) UnloadModule: "libinput"
+[  8109.844] (II) systemd-logind: releasing fd for 13:76
+[  8109.856] (II) UnloadModule: "libinput"
+[  8109.856] (II) systemd-logind: releasing fd for 13:65
+[  8109.856] (II) UnloadModule: "libinput"
+[  8109.856] (II) systemd-logind: releasing fd for 13:67
+[  8109.856] (II) UnloadModule: "libinput"
+[  8109.856] (II) systemd-logind: not releasing fd for 13:78, still in use
+[  8109.856] (II) UnloadModule: "libinput"
+[  8109.856] (II) systemd-logind: releasing fd for 13:78
+[  8109.857] (II) UnloadModule: "libinput"
+[  8109.857] (II) systemd-logind: not releasing fd for 13:70, still in use
+[  8109.857] (II) UnloadModule: "libinput"
+[  8109.857] (II) systemd-logind: releasing fd for 13:70
+[  8109.857] (II) UnloadModule: "libinput"
+[  8109.857] (II) systemd-logind: releasing fd for 13:77
+[  8109.858] (II) UnloadModule: "libinput"
+[  8109.858] (II) systemd-logind: releasing fd for 13:79
+[  8110.994] (II) NVIDIA(GPU-0): Deleting GPU-0
+[  8111.037] (II) Server terminated successfully (0). Closing log file.

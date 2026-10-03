@@ -1,14 +1,21 @@
-# Never publish credentials or private keys.
+# Secrets and credentials - NEVER commit these
+**/secrets.sh
+**/secret
+**/credentials*
+**/*_key
+**/*_token
+**/*.pem
+**/*.key
 config/.config/shell/secrets.sh
 config/.config/ghgrab/config.json
 config/.config/anthropic/credentials/
 config/.config/claude/claude.json
 config/.config/ssh/
-**/*credentials*
-**/*secret*
-**/id_*_key
+shell/.config/shell/secrets.sh
+**/.env
+**/.env.*
 
-# Generated build artifacts: recreate these locally.
+# Build artifacts - regenerate on each machine
 **/*.o
 **/*.so
 **/*.a
@@ -21,3 +28,28 @@ share/.local/share/st-terminal/st
 share/.local/share/nsxiv/nsxiv
 share/.local/share/vcompmgr/vcompmgr
 share/.local/share/zlstatus/zig-out/
+
+# Runtime files
+**/.zcompdump*
+**/.zsh_history
+**/zsh_history
+**/.bash_history
+**/.lesshst
+**/.viminfo
+**/.wget-hsts
+**/.Xauthority
+**/Xauthority
+
+# Cache directories
+**/.cache/
+**/cache/
+
+# Claude working directories
+**/.claude/
+
+# Editor and IDE files
+**/.vscode/
+**/.idea/
+**/*.swp
+**/*.swo
+**/*~

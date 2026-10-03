@@ -1,0 +1,33 @@
+
+# XDG Base Directory Specification
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_CACHE_HOME="$HOME/.cache"
+export XDG_STATE_HOME="$HOME/.local/state"
+
+# Application-specific XDG overrides
+export CARGO_HOME="$XDG_DATA_HOME/cargo"
+export GOPATH="$XDG_DATA_HOME/go"
+export GOBIN="$GOPATH/bin"
+export GOMODCACHE="$XDG_CACHE_HOME/go/mod"
+export NPM_CONFIG_USERCONFIG="$XDG_CONFIG_HOME/npm/npmrc"
+export NPM_CONFIG_CACHE="$XDG_CACHE_HOME/npm"
+export PYTHONSTARTUP="$XDG_CONFIG_HOME/python/pythonrc"
+export PYTHON_HISTORY="$XDG_DATA_HOME/python/history"
+export _JAVA_OPTIONS="-Djava.util.prefs.userRoot=$XDG_CONFIG_HOME/java"
+export DOCKER_CONFIG="$XDG_CONFIG_HOME/docker"
+export KUBECONFIG="$XDG_CONFIG_HOME/kube/config"
+export GNUPGHOME="$XDG_CONFIG_HOME/gnupg"
+export PASSWORD_STORE_DIR="$XDG_DATA_HOME/password-store"
+export WGETRC="$XDG_CONFIG_HOME/wget/wgetrc"
+export INPUTRC="$XDG_CONFIG_HOME/readline/inputrc"
+export LESSHISTFILE="$XDG_CACHE_HOME/less_history"
+export NODE_REPL_HISTORY="$XDG_DATA_HOME/node_repl_history"
+export SQLITE_HISTORY="$XDG_DATA_HOME/sqlite_history"
+export TERMINFO="$XDG_DATA_HOME/terminfo"
+export TERMINFO_DIRS="$XDG_DATA_HOME/terminfo:/usr/share/terminfo"
+export XINITRC="$XDG_CONFIG_HOME/x11/xinitrc"
+export XPROFILE="$XDG_CONFIG_HOME/x11/xprofile"
+export XRESOURCES="$XDG_CONFIG_HOME/x11/Xresources"
+export FFMPEG_DATADIR="$XDG_CONFIG_HOME/ffmpeg"
+
