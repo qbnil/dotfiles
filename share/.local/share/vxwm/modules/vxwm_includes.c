@@ -59,3 +59,11 @@
 #if ZOOM
 #include "zoom/zoom.c"
 #endif
+
+#if FLOATING_ALTTAB
+#include "alttab/alttab.c"
+#endif
+
+#if OPACITY
+#include "opacity/opacity.c"
+#endif

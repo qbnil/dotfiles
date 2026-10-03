@@ -23,7 +23,7 @@ focusdir(const Arg *arg)
 			continue;
 
 #if INFINITE_TAGS
-		if (selmon->lt[selmon->sellt]->arrange == NULL) {
+		if (curlayout(selmon)->arrange == NULL) {
 
 			int s_cx = s->x + s->w / 2;
 			int s_cy = s->y + s->h / 2;

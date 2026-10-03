@@ -8,11 +8,11 @@ static const unsigned int snap      = 0;       /* snap pixel */
 static const int showbar            = 1;        /* 0 means no bar */
 static const int topbar             = 1;        /* 0 means bottom bar */
 static const char *fonts[] = {
-      "JetBrainsMono Nerd Font:size=11",
+      "JetBrainsMono Nerd Font:size=12",
 //    "Symbols Nerd Font:size=10",
 //    "Noto Color Emoji:size=10"
 };
-static const char dmenufont[]       = "JetBrainsMono Nerd Font:size=10";
+static const char dmenufont[]       = "JetBrainsMono Nerd Font:size=12";
 static const char *up_vol[]   = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"};
 static const char *down_vol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"};
 static const char *mute_vol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"};
@@ -23,6 +23,7 @@ static const char *stop_song[] = { "mpc", "stop", NULL };
 static const char *toggle_play[] = { "mpc", "toggle", NULL };
 static const char *cliphistadd[] = { "cliphist", "add", NULL };
 static const char *cliphistsel[] = { "cliphist", "sel", NULL };
+static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passmanager", NULL };
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
 #include "$HOME/.cache/wal/colors-wal-dwm.h"
@@ -90,6 +91,18 @@ static const char *occupiedtags[] = { "1+", "2+", "3+", "4+", "5+", "6+", "7+", 
 #define RESIZE_WITH_KEYBOARD_STEP 50 /* Defines by how many pixels windows will be resized with keyboard */
 #endif
 
+#if OPACITY
+/* Transparency defaults, in percent, where 100 is fully opaque. These apply to
+   any window you have not adjusted by hand. A window you do adjust keeps its own
+   value across focus and tag changes. Needs a compositor running client-side
+   (xcompmgr -c or vcompmgr -c) for any of it to be visible. */
+static const unsigned int opacity_focused   = 100; /* focused windows   */
+static const unsigned int opacity_unfocused = 85;  /* unfocused windows */
+static const unsigned int opacity_step      = 5;   /* change per press  */
+static const unsigned int opacity_min       = 30;  /* floor, so a window is always visible */
+static const unsigned int opacity_max       = 100;
+#endif
+
 #if AUTOSTART
 /* vxwm will execute this on startup (can be skipped with -ignoreautostart vxwm flag). */
 
@@ -106,11 +119,12 @@ static const Rule rules[] = {
 	 */
 	/* class      instance    title       tags mask     isfloating   monitor */
 	{ "Gimp",     NULL,       NULL,       0,            1,           -1 },
+  { "passmanager", NULL,    NULL,       0,            1,           -1 },
 //	{ "vivaldi",  NULL,       NULL,       1 << 8,       0,           -1 },
 };
 
 /* layout(s) */
-static const float mfact     = 0.55; /* factor of master area size [0.05..0.95] */
+static const float mfact     = 0.5; /* factor of master area size [0.05..0.95] */
 static const int nmaster     = 1;    /* number of clients in master area */
 static const int resizehints = 1;    /* 1 means respect size hints in tiled resizals */
 static const int lockfullscreen = 1; /* 1 will force focus on the fullscreen window */
@@ -122,6 +136,7 @@ static const Layout layouts[] = {
 	/* symbol     arrange function */
 	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[M]",      monocle },
+  { "[G]",      grid },
 };
 
 /* key definitions */
@@ -142,12 +157,13 @@ static const Layout layouts[] = {
 
 /* commands */
 static char dmenumon[2] = "0"; /* component of dmenucmd, manipulated in spawn() */
-static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
+static const char *dmenucmd[] = { "dmenu_run", "-i", NULL };
 
 static const char *termcmd[]  = { "st", NULL };
 static const char *powermenu[] = { "sys", NULL };
 static const char *wallpapermenu[] = { "wallpapermenu", NULL };
 static const char *cheatsheet[] = { "cheatsheet", NULL };
+static const char *dmenuwin[] = {"dmenu-win", NULL };
 
 #if ZOOM
 static const char *zoomin[] = { "vcompmgr", "-Z", "+0.15", NULL }; // zoom in
@@ -157,11 +173,13 @@ static const char *zoomreset[] = { "vcompmgr", "-Z", "1", NULL }; // set zoom to
 
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
-	{ MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
-  	{ MODKEY,     		        XK_Return, spawn,          {.v = termcmd } },
-	{ MODKEY,                       XK_w,      spawn,      {.v = wallpapermenu} },
+	{ MODKEY,                       XK_d,      spawn,      {.v = dmenucmd } },
+  { MODKEY,     		              XK_Return, spawn,      {.v = termcmd } },
+	{ MODKEY|ShiftMask,             XK_w,      spawn,      {.v = wallpapermenu} },
+	{ MODKEY,                       XK_w,      spawn,      {.v = dmenuwin} },
 	{ MODKEY,                       XK_slash,  spawn,      {.v = cheatsheet} },
 	{ MODKEY,                       XK_p,      spawn,      {.v = powermenu} },
+  { MODKEY|ShiftMask,             XK_p,      spawn,      {.v = passmanagercmd} },
 	{ MODKEY,                       XK_b,      togglebar,      {0} },
 //	{ 0,				XKB_KEY_XF86AudioRaiseVolume, spawn, {.v = up_vol} },
 //	{ 0,				XKB_KEY_XF86AudioLowerVolume, spawn, {.v = down_vol} },
@@ -174,7 +192,7 @@ static const Key keys[] = {
 	{ MODKEY,			XK_bracketleft, spawn, {.v = prev_song} },
 	{ MODKEY,			XK_bracketright, spawn, {.v = next_song} },
 	{ MODKEY,			XK_s, spawn, {.v = stop_song} },
-//	{ MODKEY|ShiftMask,		XK_p, spawn, {.v = toggle_play} },
+	{ MODKEY|ControlMask,		XK_p, spawn, {.v = toggle_play} },
 //	{ MODKEY|ShiftMask,             XK_j,      focusstack,     {.i = +1 } },
 //	{ MODKEY|ShiftMask,             XK_k,      focusstack,     {.i = -1 } },
 	{ MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
@@ -184,11 +202,12 @@ static const Key keys[] = {
 	{ MODKEY|ShiftMask,             XK_Return, swapmaster,     {0} },
 	{ MODKEY,                       XK_0,      view,           {0} },
 	{ MODKEY,	                XK_q,      killclient,     {0} },
-	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[1]} },
-	{ MODKEY,                       XK_f,      setlayout,      {.v = &layouts[0]} },
+	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
+	{ MODKEY,                       XK_f,      setlayout,      {.v = &layouts[1]} },
 	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[2]} },
+  { MODKEY,                       XK_g,      setlayout,      {.v = &layouts[3]} },
 //	{ MODKEY|ControlMask,           XK_space,  setlayout,      {0} },
-//	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} }, //default toggle floating bind.
+	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} }, //default toggle floating bind.
 	{ MODKEY,                       XK_Tab,    view,           {.ui = ~0 } },
 	{ MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
 	{ MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
@@ -213,11 +232,17 @@ static const Key keys[] = {
   { MODKEY|ShiftMask,             XK_f,      togglefullscr,  {0} },
 #endif
 #if ENHANCED_TOGGLE_FLOATING
-  { MODKEY,                       XK_e,      enhancedtogglefloating, {0} }, //enhanced toggle floating bind.
+  { MODKEY,             XK_e,      enhancedtogglefloating, {0} }, //enhanced toggle floating bind.
+#endif
+#if FLOATING_ALTTAB
+  { ALTERNATE_MODKEY,             XK_Tab,    alttaball,       {.i = +1 } }, // next window (tiled and floating)
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Tab,    alttaball,       {.i = -1 } }, // previous window
+  { ALTERNATE_MODKEY,             XK_grave,  alttab,          {.i = +1 } }, // next floating window only
+  { ALTERNATE_MODKEY|ShiftMask,   XK_grave,  alttab,          {.i = -1 } }, // previous floating window only
 #endif
 #if GAPS
-  { MODKEY,                       XK_minus,  setgaps,        {.i = -1 } },
-  { MODKEY,                       XK_equal,  setgaps,        {.i = +1 } },
+  { MODKEY,                       XK_equal,  setgaps,        {.i = -5 } },
+  { MODKEY,                       XK_minus,  setgaps,        {.i = +5 } },
   { MODKEY|ShiftMask,             XK_equal,  setgaps,        {.i = 0  } },
 #endif
 #if MOVE_RESIZE_WITH_KEYBOARD
@@ -225,6 +250,10 @@ static const Key keys[] = {
   { MODKEY|ShiftMask,			      XK_k,	moveresize,		{.v = (int []){ 0, -MOVE_WITH_KEYBOARD_STEP, 0, 0 }}}, // Move window to up
   { MODKEY|ShiftMask,			      XK_l,	moveresize,		{.v = (int []){ MOVE_WITH_KEYBOARD_STEP, 0, 0, 0 }}}, // Move window to right
   { MODKEY|ShiftMask,			      XK_h,	moveresize,		{.v = (int []){ -MOVE_WITH_KEYBOARD_STEP, 0, 0, 0 }}}, // Move window to left
+  { MODKEY|ControlMask|ShiftMask,		      XK_l,	moveresize,		{.v = (int []){ 0, 0, RESIZE_WITH_KEYBOARD_STEP, 0 }}}, // Resize window to right
+  { MODKEY|ControlMask|ShiftMask,		      XK_h,	moveresize,		{.v = (int []){ 0, 0, -RESIZE_WITH_KEYBOARD_STEP, 0 }}}, // Resize window to left
+  { MODKEY|ControlMask|ShiftMask,		      XK_j,	moveresize,		{.v = (int []){ 0, 0, 0, RESIZE_WITH_KEYBOARD_STEP }}}, // Resize window to down
+  { MODKEY|ControlMask|ShiftMask,		      XK_k,	moveresize,		{.v = (int []){ 0, 0, 0, -RESIZE_WITH_KEYBOARD_STEP }}}, // Resize window to up
 #endif
 #if INFINITE_TAGS
   { ALTERNATE_MODKEY,             XK_r,      homecanvas,       {0} }, // Return to x:0, y:0 position
@@ -245,6 +274,18 @@ static const Key keys[] = {
  { ALTERNATE_MODKEY|ShiftMask,    XK_r,      spawn,          {.v = zoomreset } },
  { ALTERNATE_MODKEY,              XK_equal,  spawn,          {.v = zoomin } },
  { ALTERNATE_MODKEY,              XK_minus,  spawn,          {.v = zoomout } },
+#endif
+#if OPACITY
+  /* global toggle: all windows opaque, or back to per-focus values */
+  { ALTERNATE_MODKEY,             XK_o,      toggleopacity,      {0} },
+  /* focused window opacity, +/- 5% per press */
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Up,     incopacity,         {.i = +1 } },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Down,   incopacity,         {.i = -1 } },
+  /* unfocused default opacity, +/- 5% per press */
+  { ALTERNATE_MODKEY|ControlMask, XK_Up,     incopacityunfocused,{.i = +1 } },
+  { ALTERNATE_MODKEY|ControlMask, XK_Down,   incopacityunfocused,{.i = -1 } },
+  /* drop this window's override, back to the global default */
+  { ALTERNATE_MODKEY|ShiftMask|ControlMask, XK_r, resetopacity,   {0} },
 #endif
 };
 

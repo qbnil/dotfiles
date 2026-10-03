@@ -77,7 +77,8 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 #define WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_INCNMASTER 0 // Warps the cursor to center of the window that gets affected in use of incnmaster.
 #define WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_ENHANCED_TOGGLE_FLOATING 0 // Warps cursor to center of the window that was affected by using enhancedtogglefloating function.
 #define WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_FOCUSSTACK 0 // Warps cursor to center of the window that was focused by using focusstack function. 
-#define WARP_TO_CENTER_OF_WINDOW_MOVED_BY_KEYBOARD 0 // Warps cursor to center of the window that is moved by moveresize function. 
+#define WARP_TO_CENTER_OF_WINDOW_MOVED_BY_KEYBOARD 0 // Warps cursor to center of the window that is moved by moveresize function.
+#define WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_ALTTAB 0 // Warps cursor to center of the window that was focused by using alttab function.
 
 
 
@@ -102,7 +103,15 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 
 
 /* Floating */
-/* Recomended to use with ALWAYS_CENTER_NEW_FLOATING_WINDOWS set to 1. */ 
+/* Recomended to use with ALWAYS_CENTER_NEW_FLOATING_WINDOWS set to 1. */
+
+#define PER_TAG_LAYOUT 1
+/* By default the layout is stored per-monitor, so switching the layout affects every
+   tag at once. With this enabled every tag remembers its own layout, so you can keep
+   workspace 2 tiled while leaving the others alone. Requires TAG_TO_TAG-compatible
+   tag handling, which is what view() already does. */
+
+
 
 #define FLOATING_LAYOUT_FLOATS_WINDOWS 1 
 /* By default, in floating layout, windows appear to be floating, but, for dwm,
@@ -114,7 +123,33 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
    resize to its natural size, and in floating layout, window will be tiled. 
    REQUIRES "FLOATING_LAYOUT_FLOATS_WINDOWS" SET TO 1 TO WORK PROPERLY. */
 
-#define RESTORE_SIZE_AND_POS_ETF 1 // Restore previous size and position of window when toggling floating 
+#define RESTORE_SIZE_AND_POS_ETF 1 // Restore previous size and position of window when toggling floating
+
+#define FLOATING_ALTTAB 1
+/* Adds an alt-tab style binding that cycles focus through floating windows. Works in
+   any layout and never touches tiled clients, so you can reach a dialog or a floating
+   terminal without leaving the keyboard. Cycles in most-recently-used order and is a
+   no-op when fewer than two floating windows are visible. Bind it like this:
+#if FLOATING_ALTTAB
+  { ALTERNATE_MODKEY,             XK_Tab,   alttab, {.i = +1 } },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Tab,   alttab, {.i = -1 } },
+#endif
+*/
+
+#define OPACITY 1
+/* Per-window transparency through _NET_WM_WINDOW_OPACITY. Needs a compositor in
+   client-side mode (xcompmgr -c or vcompmgr -c) to be visible. Focused and
+   unfocused windows get separate default values, and a window you adjust by
+   hand keeps its own value across focus and tag changes. Suggested binds:
+#if OPACITY
+  { ALTERNATE_MODKEY,             XK_o,      toggleopacity,      {0} },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Up,     incopacity,         {.i = +1 } },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Down,   incopacity,         {.i = -1 } },
+  { ALTERNATE_MODKEY|ControlMask, XK_Up,     incopacityunfocused,{.i = +1 } },
+  { ALTERNATE_MODKEY|ControlMask, XK_Down,   incopacityunfocused,{.i = -1 } },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_r,      resetopacity,       {0} },
+#endif
+*/
 
 
 

@@ -9,7 +9,7 @@ OBJ = ${SRC:.c=.o}
 all: vxwm
 
 .c.o:
-	${CC} -c ${CFLAGS} $<
+	${CC} -c ${CFLAGS} -I${SRCDIR}/modules $<
 
 ${OBJ}: config.h modules.h config.mk
 

@@ -5,7 +5,9 @@ enhancedtogglefloating(const Arg *arg)
     if (!selmon->sel || selmon->sel->isfullscreen)
         return;
     Client *c = selmon->sel;
+#if !PER_TAG_LAYOUT
     const Layout *prevlayout = selmon->lt[selmon->sellt];
+#endif
     c->isfloating = !c->isfloating;
     if (c->isfloating) {
         int w = c->sfw > 0 ? c->sfw : c->w;
@@ -15,6 +17,11 @@ enhancedtogglefloating(const Arg *arg)
             c->mon->wy + (c->mon->wh - h) / 2,
             w, h, 0);
     } else {
+#if PER_TAG_LAYOUT
+        /* Un-tiling: fall back to the default tiled layout for this tag. */
+        setcurlayout(selmon, &layouts[0]);
+        arrange(selmon);
+#else
         int tiled_sellt = -1;
         for (int i = 0; i < LENGTH(layouts); i++) {
             if (selmon->lt[i]->arrange != NULL) {
@@ -32,6 +39,7 @@ enhancedtogglefloating(const Arg *arg)
                 break;
             }
         }
+#endif
     }
     arrange(selmon);
 #if WARP_TO_CLIENT && WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_ENHANCED_TOGGLE_FLOATING
@@ -45,7 +53,9 @@ enhancedtogglefloating(const Arg *arg)
     if (!selmon->sel || selmon->sel->isfullscreen)
         return;
     Client *c = selmon->sel;
+#if !PER_TAG_LAYOUT
     const Layout *prevlayout = selmon->lt[selmon->sellt];
+#endif
     c->isfloating = !c->isfloating;
     if (c->isfloating) {
         int w = c->sfw > 0 ? c->sfw : c->w;
@@ -65,6 +75,10 @@ enhancedtogglefloating(const Arg *arg)
         c->sfy = c->y;
         c->sfw = c->w;
         c->sfh = c->h;
+#if PER_TAG_LAYOUT
+        setcurlayout(selmon, &layouts[0]);
+        arrange(selmon);
+#else
         int tiled_sellt = -1;
         for (int i = 0; i < LENGTH(layouts); i++) {
             if (selmon->lt[i]->arrange != NULL) {
@@ -82,6 +96,7 @@ enhancedtogglefloating(const Arg *arg)
                 break;
             }
         }
+#endif
     }
     arrange(selmon);
 #if WARP_TO_CLIENT && WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_ENHANCED_TOGGLE_FLOATING

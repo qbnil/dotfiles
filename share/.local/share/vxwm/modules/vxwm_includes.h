@@ -55,3 +55,12 @@
 #if ZOOM
 #include "zoom/zoom.h"
 #endif
+
+#if FLOATING_ALTTAB
+#include "alttab/alttab.h"
+#endif
+
+#if OPACITY
+#include "opacity/opacity.h"
+#endif
+

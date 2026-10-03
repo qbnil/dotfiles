@@ -59,7 +59,7 @@ static const char *occupiedtags[] = { "1+", "2+", "3+", "4+", "5+", "6+", "7+", 
 #endif
 
 #if INFINITE_TAGS
-#define MOVE_CANVAS_STEP 120 /* Defines how many pixel will be jumped when using movecanvas function */
+#define MOVE_CANVAS_STEP 150 /* Defines how many pixel will be jumped when using movecanvas function */
 #endif
 
 #if INFINITE_TAGS && IT_SHOW_COORDINATES_IN_BAR

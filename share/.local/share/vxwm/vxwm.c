@@ -102,7 +102,7 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 #if !EWMH_TAGS
        NetWMWindowTypeDialog, NetClientList, NetLast }; /* EWMH atoms */
 #else //EWMH_TAGS 
-       NetWMWindowTypeDialog, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetDesktopNum, NetLast }; /* EWMH atoms */
+       NetWMWindowTypeDialog, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetDesktopNum, NetWMWindowOpacity, NetLast }; /* EWMH atoms */
 #endif
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
@@ -152,7 +152,11 @@ struct Client {
   #if RESTORE_SIZE_AND_POS_ETF
     int wasmanuallyedited;
   #endif
-#endif 
+#endif
+#if OPACITY
+  unsigned int opacity;      /* current 0-100 opacity applied to this window */
+  unsigned int opacity_set;  /* 1 if the user picked this value by hand */
+#endif
 };
 
 typedef struct {
@@ -196,6 +200,10 @@ struct Monitor {
 	Monitor *next;
 	Window barwin;
 	const Layout *lt[2];
+#if PER_TAG_LAYOUT
+  const Layout **pertaglt;
+  unsigned int *pertagsellt;
+#endif
 #if INFINITE_TAGS
   CanvasOffset *canvas;
 #endif
@@ -281,6 +289,7 @@ static void spawn(const Arg *arg);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tile(Monitor *m);
+static void grid(Monitor *m);
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void toggletag(const Arg *arg);
@@ -305,6 +314,11 @@ static int xerror(Display *dpy, XErrorEvent *ee);
 static int xerrordummy(Display *dpy, XErrorEvent *ee);
 static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void swapmaster(const Arg *arg);
+static const Layout *curlayout(Monitor *m);
+#if PER_TAG_LAYOUT
+static void setcurlayout(Monitor *m, const Layout *l);
+static void loadtaglayout(Monitor *m);
+#endif
 
 #include "modules/vxwm_includes.h"
 
@@ -468,6 +482,52 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 	return *x != c->x || *y != c->y || *w != c->w || *h != c->h;
 }
 
+#if PER_TAG_LAYOUT
+/* Index of the tag currently shown on this monitor. Same idea as
+   getcurrenttag() but always available, even without INFINITE_TAGS. */
+static int
+currenttagidx(Monitor *m)
+{
+	unsigned int i;
+	for (i = 0; i < LENGTH(tags) && !(m->tagset[m->seltags] & (1 << i)); i++);
+	return i < LENGTH(tags) ? (int)i : 0;
+}
+#endif
+
+/* Layout of the tag currently shown on this monitor. Available regardless of
+   PER_TAG_LAYOUT so modules can call it unconditionally. */
+const Layout *
+curlayout(Monitor *m)
+{
+#if PER_TAG_LAYOUT
+	return m->pertaglt[currenttagidx(m)];
+#else
+	return m->lt[m->sellt];
+#endif
+}
+
+#if PER_TAG_LAYOUT
+/* Assign a layout to the tag currently shown on this monitor. The
+   per-monitor lt[]/sellt pair is kept in sync because plenty of code still
+   reads the layout through m->lt[m->sellt]. */
+void
+setcurlayout(Monitor *m, const Layout *l)
+{
+	m->pertaglt[currenttagidx(m)] = l;
+	m->lt[0] = l;
+	m->sellt = 0;
+}
+
+/* Re-apply the stored layout of the tag now being shown. Called on tag
+   switch so m->lt/m->sellt follow the tag. */
+void
+loadtaglayout(Monitor *m)
+{
+	m->lt[0] = curlayout(m);
+	m->sellt = 0;
+}
+#endif
+
 void
 arrange(Monitor *m)
 {
@@ -492,10 +552,15 @@ arrange(Monitor *m)
 void
 arrangemon(Monitor *m)
 {
-	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, sizeof m->ltsymbol - 1);
+	const Layout *lt = m->lt[m->sellt];
+
+#if PER_TAG_LAYOUT
+	lt = curlayout(m);
+#endif
+	strncpy(m->ltsymbol, lt->symbol, sizeof m->ltsymbol - 1);
   m->ltsymbol[sizeof m->ltsymbol - 1] = '\0';
-	if (m->lt[m->sellt]->arrange)
-		m->lt[m->sellt]->arrange(m);
+	if (lt->arrange)
+		lt->arrange(m);
 }
 
 void
@@ -592,7 +657,11 @@ cleanup(void)
 	size_t i;
 
 	view(&a);
+#if PER_TAG_LAYOUT
+	setcurlayout(selmon, &foo);
+#else
 	selmon->lt[selmon->sellt] = &foo;
+#endif
 	for (m = mons; m; m = m->next)
 		while (m->stack)
 			unmanage(m->stack, 0);
@@ -636,6 +705,7 @@ clientmessage(XEvent *e)
 {
 	XClientMessageEvent *cme = &e->xclient;
 	Client *c = wintoclient(cme->window);
+	unsigned int i;
 
 	if (!c)
 		return;
@@ -645,8 +715,19 @@ clientmessage(XEvent *e)
 			setfullscreen(c, (cme->data.l[0] == 1 /* _NET_WM_STATE_ADD    */
 				|| (cme->data.l[0] == 2 /* _NET_WM_STATE_TOGGLE */ && !c->isfullscreen)));
 	} else if (cme->message_type == netatom[NetActiveWindow]) {
-		if (c != selmon->sel && !c->isurgent)
-			seturgent(c, 1);
+		for (i = 0; i < LENGTH(tags) && !((1 << i) & c->tags); i++);
+		if (i < LENGTH(tags)) {
+			const Arg a = {.ui = 1 << i};
+			selmon = c->mon;
+			/* view() with TAG_TO_TAG treats "switch to the tag I'm
+			   already on" as a toggle back to the previous tag, and the
+			   other tagset[] slot is stale. Only call it when it would
+			   actually move; otherwise just raise the window. */
+			if ((a.ui & TAGMASK) != selmon->tagset[selmon->seltags])
+				view(&a);
+			focus(c);
+			restack(selmon);
+		}
 	}
 }
 
@@ -770,6 +851,17 @@ createmon(void)
 	m->lt[0] = &layouts[0];
 	m->lt[1] = &layouts[1 % LENGTH(layouts)];
 	strncpy(m->ltsymbol, layouts[0].symbol, sizeof m->ltsymbol);
+#if PER_TAG_LAYOUT
+  m->pertaglt = ecalloc(LENGTH(tags), sizeof(const Layout *));
+  m->pertagsellt = ecalloc(LENGTH(tags), sizeof(unsigned int));
+  {
+      unsigned int t;
+      for (t = 0; t < LENGTH(tags); t++) {
+          m->pertaglt[t] = &layouts[0];
+          m->pertagsellt[t] = 0;
+      }
+  }
+#endif
 #if INFINITE_TAGS
   m->canvas = ecalloc(LENGTH(tags), sizeof(CanvasOffset));
   unsigned int i;
@@ -990,6 +1082,10 @@ focus(Client *c)
 		attachstack(c);
 		grabbuttons(c, 1);
 		XSetWindowBorder(dpy, c->win, scheme[SchemeSel][ColBorder].pixel);
+#if OPACITY
+		if (opacity_enabled)
+			opacity_apply(c, opacity_for(c, 1));
+#endif
 		setfocus(c);
 	} else {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
@@ -1915,37 +2011,56 @@ setfullscreen(Client *c, int fullscreen)
 void
 setlayout(const Arg *arg)
 {
+#if PER_TAG_LAYOUT
+    const Layout *old_layout = curlayout(selmon);
+    const Layout *new_layout;
+
+    if (arg && arg->v)
+        new_layout = (const Layout *)arg->v;
+    else if (arg && !arg->v)
+        new_layout = selmon->lt[selmon->sellt ^ 1];
+    else
+        new_layout = old_layout == &layouts[0] ? &layouts[1] : &layouts[0];
+
+    if (new_layout == old_layout)
+        return;
+
+    setcurlayout(selmon, new_layout);
+#else
 #if INFINITE_TAGS
     const Layout *temp_new_layout = (arg && arg->v) ? (Layout *)arg->v : selmon->lt[selmon->sellt ^ 1];
     if (temp_new_layout == selmon->lt[selmon->sellt]) return;
 
     const Layout *old_layout = selmon->lt[selmon->sellt];
-#endif    
+#endif
     if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
         selmon->sellt ^= 1;
     if (arg && arg->v)
         selmon->lt[selmon->sellt] = (Layout *)arg->v;
 #if INFINITE_TAGS
     const Layout *new_layout = selmon->lt[selmon->sellt];
+#endif
+#endif /* PER_TAG_LAYOUT */
 
+#if INFINITE_TAGS
     if (old_layout->arrange == NULL && new_layout->arrange != NULL) {
         save_canvas_positions(selmon);
-        homecanvas(NULL);  
+        homecanvas(NULL);
         Client *c;
         for (c = selmon->clients; c; c = c->next)
             if (!c->isfixed) c->isfloating = 0;
     }
-    
+
     if (new_layout->arrange == NULL) {
         restore_canvas_positions(selmon);
-        
+
         Client *c;
         for (c = selmon->clients; c; c = c->next)
             c->isfloating = 1;
     }
 #endif
 
-    strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, sizeof selmon->ltsymbol - 1);
+    strncpy(selmon->ltsymbol, curlayout(selmon)->symbol, sizeof selmon->ltsymbol - 1);
     selmon->ltsymbol[sizeof selmon->ltsymbol - 1] = '\0';
     arrange(selmon);
 }
@@ -2023,6 +2138,9 @@ setup(void)
 	netatom[NetCurrentDesktop] = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
 	netatom[NetDesktopNames] = XInternAtom(dpy, "_NET_DESKTOP_NAMES", False);
 	netatom[NetDesktopNum] = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
+#if OPACITY
+	netatom[NetWMWindowOpacity] = XInternAtom(dpy, "_NET_WM_WINDOW_OPACITY", False);
+#endif
 #endif
 	/* init cursors */
 	cursor[CurNormal] = drw_cur_create(drw, XC_left_ptr);
@@ -2181,46 +2299,77 @@ tagmon(const Arg *arg)
 void
 tile(Monitor *m)
 {
-	unsigned int i, n, h, mw, my, ty;
+	unsigned int i, n, g = 0;
+	int x, y, w, h, cw, ch;
+	float f;
 	Client *c;
 
 	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
 	if (n == 0)
 		return;
 
-	if (n > m->nmaster)
-		mw = m->nmaster ? m->ww * m->mfact : 0;
-	else
-#if !GAPS
-		mw = m->ww;
-	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
-		if (i < m->nmaster) {
-			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
-			resize(c, m->wx, m->wy + my, mw - (2*c->bw), h - (2*c->bw), 0);
-			if (my + HEIGHT(c) < m->wh)
-				my += HEIGHT(c);
-#else //GAPS
-    mw = m->ww - m->gappx;
-  for (i = 0, my = ty = m->gappx, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
-		if (i < m->nmaster) {
-			h = (m->wh - my) / (MIN(n, m->nmaster) - i) - m->gappx;
-			resize(c, m->wx + m->gappx, m->wy + my, mw - (2*c->bw) - m->gappx, h - (2*c->bw), 0);
-			if (my + HEIGHT(c) + m->gappx < m->wh)
-				my += HEIGHT(c) + m->gappx;
-#endif //GAPS
+#if GAPS
+	g = m->gappx;
+#endif
+	/* remaining free area, inset by the outer gap */
+	x = m->wx + g;
+	y = m->wy + g;
+	w = m->ww - 2 * g;
+	h = m->wh - 2 * g;
+
+	for (i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
+		if (i < n - 1) {
+			/* first split follows mfact, the rest are half/half */
+			f = (i == 0) ? m->mfact : 0.5;
+			if (i % 2 == 0) {           /* vertical split: client takes left part */
+				cw = (w - g) * f;
+				resize(c, x, y, cw - 2 * c->bw, h - 2 * c->bw, 0);
+				x += cw + g;
+				w -= cw + g;
+			} else {                    /* horizontal split: client takes top part */
+				ch = (h - g) * f;
+				resize(c, x, y, w - 2 * c->bw, ch - 2 * c->bw, 0);
+				y += ch + g;
+				h -= ch + g;
+			}
 		} else {
-#if !GAPS
-			h = (m->wh - ty) / (n - i);
-			resize(c, m->wx + mw, m->wy + ty, m->ww - mw - (2*c->bw), h - (2*c->bw), 0);
-			if (ty + HEIGHT(c) < m->wh)
-				ty += HEIGHT(c);
-#else //GAPS
-      h = (m->wh - ty) / (n - i) - m->gappx;
-			resize(c, m->wx + mw + m->gappx, m->wy + ty, m->ww - mw - (2*c->bw) - 2*m->gappx, h - (2*c->bw), 0);
-			if (ty + HEIGHT(c) + m->gappx < m->wh)
-				ty += HEIGHT(c) + m->gappx;
-#endif //GAPS
+			/* last client gets whatever is left */
+			resize(c, x, y, w - 2 * c->bw, h - 2 * c->bw, 0);
 		}
+	}
+}
+void
+grid(Monitor *m)
+{
+	unsigned int i, n, cols, rows, col, row, incol, cw, ch;
+	unsigned int g = 0;
+	Client *c;
+
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next))
+		n++;
+	if (n == 0)
+		return;
+
+#if GAPS
+	g = m->gappx;
+#endif
+	for (rows = 0; rows <= n / 2; rows++)
+		if (rows * rows >= n)
+			break;
+	cols = (rows && (rows - 1) * rows >= n) ? rows - 1 : rows;
+	/* cell size leaves room for the gap on the right/below of each cell */
+	cw = (m->ww - g * (cols + 1)) / cols;
+
+	for (i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
+		col = i / rows;
+		row = i % rows;
+		/* the last column may hold fewer windows: stretch them to fill */
+		incol = (col == cols - 1) ? n - rows * (cols - 1) : rows;
+		ch = (m->wh - g * (incol + 1)) / incol;
+		resize(c, m->wx + g + col * (cw + g), m->wy + g + row * (ch + g),
+		       cw - 2 * c->bw + (col == cols - 1 ? m->ww - g * (cols + 1) - cw * cols : 0),
+		       ch - 2 * c->bw + (row == incol - 1 ? m->wh - g * (incol + 1) - ch * incol : 0), 0);
+	}
 }
 
 void
@@ -2307,6 +2456,10 @@ unfocus(Client *c, int setfocus)
 		return;
 	grabbuttons(c, 0);
 	XSetWindowBorder(dpy, c->win, scheme[SchemeNorm][ColBorder].pixel);
+#if OPACITY
+	if (opacity_enabled)
+		opacity_apply(c, opacity_for(c, 0));
+#endif
 	if (setfocus) {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
@@ -2636,12 +2789,18 @@ view(const Arg *arg)
             selmon->tagset[selmon->seltags] = arg->ui & TAGMASK;
     }
 
+#if PER_TAG_LAYOUT
+    /* Each tag carries its own layout, so pull in the one belonging to the
+       tag we just switched to. */
+    loadtaglayout(selmon);
+#endif
+
 #if INFINITE_TAGS
     int newtag = getcurrenttag(selmon);
-    
+
     if (selmon->lt[selmon->sellt]->arrange == NULL) {
         restore_canvas_positions(selmon);
-        
+
         Client *c;
         for (c = selmon->clients; c; c = c->next)
             if (c->tags & (1 << newtag))
