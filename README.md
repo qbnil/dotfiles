@@ -31,8 +31,8 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 ├── dunst/             # Dunst notification daemon
 ├── mpd/               # Music Player Daemon
 ├── yazi/              # Yazi file manager
-├── btop/              # Btop system monitor
-├── scripts/           # Personal scripts in ~/.local/bin
+├── systemd/           # System configuration (Nvidia suspend fix, modprobe)
+├── bin/               # Personal scripts in ~/.local/bin
 ├── vxwm/              # vxwm window manager config
 ├── dmenu/             # dmenu launcher config
 ├── picom/             # Picom compositor config (optional)
@@ -243,6 +243,80 @@ cp -a ~/.local/bin "$backup_dir/"
 - **Editor files**: Swap files, IDE directories
 
 See `.gitignore` for full list.
+
+## Nvidia Laptop Suspend/Resume Fix
+
+If you have a laptop with an Nvidia GPU (like GTX 1650) and experience a black screen with only a cursor after closing and reopening the lid, this repository includes a comprehensive fix.
+
+### The Problem
+
+When closing the laptop lid:
+- Screen turns off properly
+- Laptop goes into suspend
+- After opening the lid: **black screen with cursor only**
+- Can't do anything except login to different tty or reboot
+
+### The Solution
+
+The fix includes three components:
+
+1. **Kernel Parameter** - Forces Nvidia driver to use kernel mode setting
+2. **Systemd Sleep Hook** - Reinitializes GPU on resume
+3. **Modprobe Configuration** - Optimizes driver for suspend/resume
+
+### Installation
+
+Run the automated setup script:
+
+```bash
+~/.local/bin/fix-nvidia-suspend
+```
+
+The script will:
+- Add `nvidia_drm.modeset=1` to GRUB kernel parameters
+- Install systemd sleep hook at `/etc/systemd/system-sleep/nvidia-suspend.sh`
+- Create Nvidia modprobe configuration at `/etc/modprobe.d/nvidia.conf`
+- Backup existing configurations before making changes
+
+**Important:** Reboot after running the script for changes to take effect.
+
+### Manual Installation
+
+If you prefer to install manually:
+
+```bash
+# 1. Copy systemd sleep hook
+sudo cp ~/dotfiles/systemd/etc/systemd/system-sleep/nvidia-suspend.sh /etc/systemd/system-sleep/
+sudo chmod +x /etc/systemd/system-sleep/nvidia-suspend.sh
+
+# 2. Copy modprobe configuration
+sudo cp ~/dotfiles/systemd/etc/modprobe.d/nvidia.conf /etc/modprobe.d/
+
+# 3. Update GRUB
+sudo nano /etc/default/grub
+# Add nvidia_drm.modeset=1 to GRUB_CMDLINE_LINUX_DEFAULT
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+
+# 4. Reboot
+sudo reboot
+```
+
+### Testing
+
+After rebooting:
+1. Close the laptop lid (or run: `systemctl suspend`)
+2. Open the lid or press a key to wake
+3. Screen should properly resume now
+
+If issues persist, try pressing `Alt+F2` after waking to manually switch ttys.
+
+### What It Does
+
+- **nvidia_drm.modeset=1**: Enables kernel mode setting for the Nvidia driver, which is more reliable for suspend/resume
+- **Sleep hook**: Automatically reloads Nvidia kernel modules (nvidia, nvidia_modeset, nvidia_drm) when resuming from suspend
+- **Modprobe config**: Sets `NVreg_UsePageAttributeTable=1` and confirms `nvidia_drm.modeset=1` at module load time
+
+For more details, see the documentation in `~/.local/share/documents/helpbook/linux <3 nvidia-suspend-resume-fix.md`
 
 ## Troubleshooting
 
