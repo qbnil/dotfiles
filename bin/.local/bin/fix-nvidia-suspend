@@ -1,0 +1,135 @@
+#!/bin/bash
+# Fix Nvidia suspend/resume issue on laptop
+# This script sets up the necessary configurations to fix the black screen
+# after closing and reopening the laptop lid
+
+set -e
+
+echo "=== Nvidia Suspend/Resume Fix for Arch Linux ==="
+echo ""
+echo "This script will help you fix the black screen issue after resuming from suspend."
+echo "Some steps require sudo access."
+echo ""
+
+# Step 1: Update GRUB with nvidia_drm.modeset parameter
+echo "Step 1: Updating GRUB configuration..."
+echo "This parameter forces the Nvidia driver to use kernel mode setting, which helps with suspend/resume."
+echo ""
+
+GRUB_FILE="/etc/default/grub"
+KERNEL_PARAM="nvidia_drm.modeset=1"
+
+if ! grep -q "$KERNEL_PARAM" "$GRUB_FILE" 2>/dev/null; then
+	echo "Need to add kernel parameter to GRUB. This requires sudo."
+	echo "Current GRUB_CMDLINE_LINUX_DEFAULT:"
+	grep "GRUB_CMDLINE_LINUX_DEFAULT" "$GRUB_FILE"
+	echo ""
+	echo "I need to add: $KERNEL_PARAM"
+	echo ""
+	read -p "Continue? (y/n) " -n 1 -r
+	echo
+	if [[ $REPLY =~ ^[Yy]$ ]]; then
+		# Backup the file
+		sudo cp "$GRUB_FILE" "$GRUB_FILE.backup.$(date +%s)"
+		echo "Backup created at: $GRUB_FILE.backup.*"
+
+		# Update GRUB
+		sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 nvidia_drm.modeset=1"/' "$GRUB_FILE"
+
+		# Regenerate grub config
+		echo "Regenerating GRUB config..."
+		sudo grub-mkconfig -o /boot/grub/grub.cfg
+
+		echo "✓ GRUB updated"
+		echo "⚠ You will need to reboot for this change to take effect"
+	fi
+else
+	echo "✓ GRUB already has nvidia_drm.modeset=1"
+fi
+
+echo ""
+echo "Step 2: Setting up systemd sleep hook..."
+echo ""
+
+# Step 2: Create systemd sleep hook
+SLEEP_DIR="/etc/systemd/system-sleep"
+SLEEP_HOOK="$SLEEP_DIR/nvidia-suspend.sh"
+
+if [ -f "$SLEEP_HOOK" ]; then
+	echo "✓ Sleep hook already exists"
+else
+	echo "Creating systemd sleep hook to reset GPU on resume..."
+	read -p "Continue? (y/n) " -n 1 -r
+	echo
+	if [[ $REPLY =~ ^[Yy]$ ]]; then
+		sudo mkdir -p "$SLEEP_DIR"
+
+		sudo tee "$SLEEP_HOOK" > /dev/null << 'HOOK_EOF'
+#!/bin/bash
+# Nvidia GPU suspend/resume fix
+
+case $1 in
+	pre)
+		# Before suspend
+		echo "Preparing for suspend..."
+		;;
+	post)
+		# After resume
+		echo "Resuming from suspend, reinitializing GPU..."
+		# Force GPU to reinitialize
+		modprobe -r nvidia_drm
+		modprobe -r nvidia_modeset
+		modprobe -r nvidia
+		modprobe nvidia
+		modprobe nvidia_modeset
+		modprobe nvidia_drm
+
+		# Notify systemd that resume is complete
+		echo "GPU reinitialized"
+		;;
+esac
+HOOK_EOF
+
+		sudo chmod +x "$SLEEP_HOOK"
+		echo "✓ Sleep hook installed"
+	fi
+fi
+
+echo ""
+echo "Step 3: Checking Nvidia driver configuration..."
+echo ""
+
+NVIDIA_CONF="/etc/modprobe.d/nvidia.conf"
+if [ ! -f "$NVIDIA_CONF" ]; then
+	echo "Creating Nvidia driver configuration..."
+	read -p "Continue? (y/n) " -n 1 -r
+	echo
+	if [[ $REPLY =~ ^[Yy]$ ]]; then
+		sudo tee "$NVIDIA_CONF" > /dev/null << 'CONF_EOF'
+# Nvidia driver configuration for better suspend/resume support
+options nvidia NVreg_UsePageAttributeTable=1
+options nvidia_drm modeset=1
+CONF_EOF
+
+		echo "✓ Nvidia configuration created"
+		echo "⚠ You will need to reboot for this to take effect"
+	fi
+else
+	echo "✓ Nvidia configuration already exists"
+fi
+
+echo ""
+echo "=== Summary ==="
+echo ""
+echo "Changes made:"
+echo "1. Added nvidia_drm.modeset=1 to GRUB kernel parameters"
+echo "2. Created /etc/systemd/system-sleep/nvidia-suspend.sh hook"
+echo "3. Created /etc/modprobe.d/nvidia.conf configuration"
+echo ""
+echo "IMPORTANT: You need to REBOOT for these changes to take effect."
+echo ""
+echo "After rebooting, test by:"
+echo "1. Closing the laptop lid (or running: systemctl suspend)"
+echo "2. Opening the lid or pressing a key to wake"
+echo "3. If the screen doesn't come back, try pressing Alt+F2 and typing your password"
+echo ""
