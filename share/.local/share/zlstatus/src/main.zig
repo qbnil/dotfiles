@@ -201,6 +201,14 @@ var last_monotonic: i64 = 0;
 var netfd: c_int = -1;
 var net_buf: [48]u8 = undefined;
 var net_len: usize = 0;
+
+// Last interface that held a default route. Used to avoid showing a VPN/tunnel
+// interface with !route during resume, when the physical interface's default
+// route hasn't been restored yet — a race where activeIfaceInto picks the
+// first UP interface (tailscale0) instead of the one that will own the route
+// once the system finishes resuming (wlan0).
+var last_routed_iface: [16]u8 = undefined;
+var last_routed_iface_len: usize = 0;
 var cached_route: RouteInfo = .{};
 var cached_dns: DnsInfo = .{};
 var cached_dns_valid: bool = false;
@@ -407,14 +415,28 @@ fn netRefresh() void {
 /// every verdict kick off another probe, and a probe that resolves instantly
 /// (refused, or unroutable) would spin at whatever rate it completes.
 fn netRender(route: RouteInfo) void {
+    // Prefer the interface that owns the default route. When there's no default
+    // route, prefer the last interface that HAD one (handles resume race where
+    // the route temporarily disappears) over activeIfaceInto, which picks the
+    // first UP interface and can return a VPN/tunnel (tailscale0) instead of the
+    // physical interface (wlan0) that will own the route once resume finishes.
     var ifbuf: [16]u8 = undefined;
-    const name: []const u8 = if (route.has_default)
-        route.iface[0..route.iface_len]
-    else
-        activeIfaceInto(&ifbuf) orelse {
+    const name: []const u8 = if (route.has_default) blk: {
+        // Remember this interface for the next time route.has_default is false
+        @memcpy(last_routed_iface[0..route.iface_len], route.iface[0..route.iface_len]);
+        last_routed_iface_len = route.iface_len;
+        break :blk route.iface[0..route.iface_len];
+    } else if (last_routed_iface_len > 0) blk: {
+        // No default route right now, but we remember which interface had it last
+        @memcpy(ifbuf[0..last_routed_iface_len], last_routed_iface[0..last_routed_iface_len]);
+        break :blk ifbuf[0..last_routed_iface_len];
+    } else blk: {
+        // No default route and no memory of one: fall back to first UP interface
+        break :blk activeIfaceInto(&ifbuf) orelse {
             netSetDown();
             return;
         };
+    };
 
     var len: usize = 0;
     netAppend(&len, name);
