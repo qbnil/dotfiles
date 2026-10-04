@@ -1,5 +1,9 @@
 # Arch Linux Dotfiles
 
+<p align="center">
+  <img src=".github/assets/screenshot.png" alt="Desktop Screenshot" width="100%">
+</p>
+
 XDG-first Arch Linux configuration for vxwm desktop environment, managed with GNU Stow.
 
 ## Features
