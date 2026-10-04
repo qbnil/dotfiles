@@ -38,15 +38,13 @@ eval "$(read_colors)"
 cat > "$GTK_CSS" << EOF
 /* Pywal GTK3 theme - auto-generated from wallpaper */
 
-/* Window decorations - CRITICAL for browser borders */
-decoration {
-    border: 2px solid $C4;
+/* Window decorations: no GTK frame at all, so apps like Waterfox only show
+   the window manager's own border (same as Thunar, follows focus + palette) */
+decoration, decoration:backdrop {
+    border: none;
     border-radius: 0;
     box-shadow: none;
     margin: 0;
-}
-decoration:backdrop {
-    border-color: $C8;
 }
 
 /* Base styling */
@@ -56,18 +54,41 @@ decoration:backdrop {
 }
 window { background-color: $BG; }
 entry {
+    background-image: none;
     background-color: $BG;
     color: $FG;
     border-color: $C8;
 }
 entry:focus { border-color: $C4; }
+
+/* Buttons: flat, no theme gradient (the gradient is what made them white) */
 button {
+    background-image: none;
     background-color: transparent;
+    color: $FG;
     border-color: transparent;
     border-style: none;
+    box-shadow: none;
+    text-shadow: none;
 }
-button:hover { background-color: transparent; }
-button:active { background-color: transparent; }
+button:hover { background-image: none; background-color: $C8; color: $FG; }
+button:active, button:checked { background-image: none; background-color: $C4; color: $BG; }
+button:disabled { color: $C8; }
+
+/* Checkboxes / radio buttons */
+check, radio {
+    background-image: none;
+    background-color: $BG;
+    color: $FG;
+    border: 1px solid $C8;
+    box-shadow: none;
+}
+check:checked, radio:checked {
+    background-color: $C4;
+    color: $BG;
+    border-color: $C4;
+}
+
 sidebar, .sidebar, paned > sidebar {
     background-color: $BG;
     color: $FG;
@@ -90,6 +111,7 @@ scrollbar slider {
 }
 scrollbar slider:hover { background-color: $C3; }
 headerbar, .headerbar {
+    background-image: none;
     background-color: $BG;
     color: $FG;
     border-color: $C8;
@@ -150,5 +172,9 @@ EOF
 
 # Apply the theme
 gsettings set org.gnome.desktop.interface gtk-theme 'Wal-Dark' 2>/dev/null || true
+
+# File pickers are often drawn by the GTK portal, which only reads gtk.css when it starts.
+# It is respawned on demand, so killing it makes the next dialog use the new colors.
+pkill -f xdg-desktop-portal-gtk 2>/dev/null || true
 
 echo "✓ GTK3 theme regenerated at $GTK_CSS"
