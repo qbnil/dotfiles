@@ -11,7 +11,7 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 - **Window Manager**: Custom vxwm (vendored and compiled from source)
 - **Terminal**: st (Simple Terminal, vendored)
 - **Shell**: Zsh with custom configuration
-- **Status Bar**: zlstatus (Zig-based status bar)
+- **Status Bar**: vxwm built-in bar with zlstatus (Zig) for right side modules (MPD, network, battery, volume, date)
 - **Application Launcher**: dmenu (vendored)
 - **Compositor**: xcompmgr
 - **File Manager**: yazi, thunar
