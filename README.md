@@ -94,7 +94,26 @@ The installation creates a template at `~/.config/shell/secrets.sh`. Edit it to 
 
 ```bash
 $EDITOR ~/.config/shell/secrets.sh
+
+# Add your environment variables:
+# export TAILSCALE_API_KEY="your-api-key-here"
+# export TAILSCALE_TAILNET="your-email@example.com"
+# export TAILSCALE_TARGET_DEVICE="your-device-hostname"
+# export TAILSCALE_AUTH_KEY="tskey-auth-..."
+# export TAILSCALE_EXIT_NODE="100.xxx.xxx.xxx"
 ```
+
+#### Tailscale Scripts
+
+If you use Tailscale, configure the environment variables in `~/.config/shell/secrets.sh`:
+
+- `TAILSCALE_API_KEY` - Your Tailscale API key
+- `TAILSCALE_TAILNET` - Your tailnet email (e.g., your-email@example.com)
+- `TAILSCALE_TARGET_DEVICE` - Device hostname to target for removal
+- `TAILSCALE_AUTH_KEY` - Your Tailscale auth key for `tailscale up`
+- `TAILSCALE_EXIT_NODE` - Exit node IP (optional)
+
+Then the scripts `tailscale-fix` and `tailscale-remove-node` will work.
 
 ### 4. Log out and back in
 
