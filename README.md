@@ -71,7 +71,24 @@ chmod +x install.sh
 ./install.sh
 ```
 
-### 3. Configure secrets
+### 3. Configure personal information
+
+After stowing the dotfiles, you need to configure your personal information:
+
+#### Git Configuration
+
+Edit your git config to set your email and name:
+
+```bash
+# Edit the git config file
+$EDITOR ~/.config/git/config
+
+# Replace placeholders with your information:
+# email = YOUR_EMAIL@example.com  →  email = your.email@example.com
+# name = YOUR_NAME                →  name = Your Name
+```
+
+#### Secrets and API Keys
 
 The installation creates a template at `~/.config/shell/secrets.sh`. Edit it to add your API keys and tokens:
 
