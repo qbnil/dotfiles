@@ -1,8 +1,6 @@
 ghgrab-bin
 lazyrsync
-libjpeg-turbo-git
 onlyoffice-bin
-python-customtkinter
 python-pywal16
 rate-mirrors-bin
 tg-ws-proxy
