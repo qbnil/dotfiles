@@ -99,23 +99,20 @@ cd "$DOTFILES_DIR"
 
 # List of packages to stow
 PACKAGES=(
-    shell
-    x11
-    zsh
     bash
-    nvim
-    tmux
-    git
+    bin
+    config
     dunst
+    git
     mpd
+    nvim
+    share
+    shell
+    systemd
+    tmux
+    x11
     yazi
-    btop
-    scripts
-    vxwm
-    dmenu
-    st
-    slock
-    zlstatus
+    zsh
 )
 
 for package in "${PACKAGES[@]}"; do
@@ -133,9 +130,12 @@ if [ ! -f "$HOME/.config/shell/secrets.sh" ]; then
 # Secrets and API keys - DO NOT COMMIT THIS FILE
 # This file is sourced by xdg-env.sh
 
-# Tailscale
-export TAILSCALE_AUTHKEY=""
+# Tailscale configuration
 export TAILSCALE_API_KEY=""
+export TAILSCALE_TAILNET=""  # Your tailnet email (e.g., your-email@example.com)
+export TAILSCALE_TARGET_DEVICE=""  # Device hostname to target for removal
+export TAILSCALE_AUTH_KEY=""  # Your Tailscale auth key for tailscale up
+export TAILSCALE_EXIT_NODE=""  # Exit node IP (optional, e.g., 100.xxx.xxx.xxx)
 
 # Gemini
 export GEMINI_API_KEY=""
@@ -222,9 +222,14 @@ print_success "Services enabled"
 print_success "Dotfiles installation complete!"
 echo ""
 print_warning "Next steps:"
-echo "  1. Edit ~/.config/shell/secrets.sh and add your API keys"
-echo "  2. Review ~/.config/shell/xdg-env.sh for environment variables"
-echo "  3. Log out and log back in to apply all changes"
-echo "  4. Run 'startx' to start the X session with vxwm"
+echo "  1. Configure personal information:"
+echo "     - Edit ~/.config/git/config and replace YOUR_EMAIL@example.com with your email"
+echo "     - Replace YOUR_NAME with your actual name"
+echo "  2. Edit ~/.config/shell/secrets.sh and add your API keys:"
+echo "     - TAILSCALE_API_KEY, TAILSCALE_TAILNET, TAILSCALE_AUTH_KEY, etc."
+echo "     - Other API keys as needed"
+echo "  3. Review ~/.config/shell/xdg-env.sh for environment variables"
+echo "  4. Log out and log back in to apply all changes"
+echo "  5. Run 'startx' to start the X session with vxwm"
 echo ""
 print_status "Backup saved at: $BACKUP_DIR"
