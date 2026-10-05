@@ -110,6 +110,7 @@ PACKAGES=(
     shell
     systemd
     tmux
+    wallpapers
     x11
     yazi
     zsh
