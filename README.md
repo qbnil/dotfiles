@@ -37,6 +37,7 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 ├── yazi/              # Yazi file manager
 ├── systemd/           # System configuration (Nvidia suspend fix, modprobe)
 ├── bin/               # Personal scripts in ~/.local/bin
+├── wallpapers/        # Wallpaper collection for pywal
 ├── vxwm/              # vxwm window manager config
 ├── dmenu/             # dmenu launcher config
 ├── picom/             # Picom compositor config (optional)
