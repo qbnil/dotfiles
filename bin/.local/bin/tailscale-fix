@@ -5,5 +5,5 @@ sudo rm -rf /var/lib/tailscale/
 sudo systemctl daemon-reload
 sudo systemctl start tailscaled
 sudo tailscale set --operator=$USER
-tailscale up --auth-key=${TAILSCALE_AUTH_KEY}
-tailscale set --exit-node=${TAILSCALE_EXIT_NODE}
+tailscale up --auth-key="${TAILSCALE_AUTH_KEY}"
+tailscale set --exit-node="${TAILSCALE_EXIT_NODE}"
