@@ -54,7 +54,7 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/dotfiles.git ~/dotfiles
+git clone https://github.com/qbnil/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ```
 
