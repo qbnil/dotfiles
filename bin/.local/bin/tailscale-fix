@@ -1,24 +1,9 @@
 #!/bin/bash
-# Tailscale Fix Script - Reset and reconnect Tailscale
-# Before running:
-# 1. Set TAILSCALE_AUTH_KEY environment variable with your auth key
-# 2. Set TAILSCALE_EXIT_NODE with your exit node IP (optional)
-
 ./tailscale-remove-node
 sudo systemctl stop tailscaled
 sudo rm -rf /var/lib/tailscale/
 sudo systemctl daemon-reload
 sudo systemctl start tailscaled
 sudo tailscale set --operator=$USER
-
-if [[ -z "$TAILSCALE_AUTH_KEY" ]]; then
-  echo "Error: TAILSCALE_AUTH_KEY not set"
-  echo "Please set it in ~/.config/shell/secrets.sh"
-  exit 1
-fi
-
-tailscale up --auth-key="$TAILSCALE_AUTH_KEY"
-
-if [[ -n "$TAILSCALE_EXIT_NODE" ]]; then
-  tailscale set --exit-node="$TAILSCALE_EXIT_NODE"
-fi
+tailscale up --auth-key=${TAILSCALE_AUTH_KEY}
+tailscale set --exit-node=${TAILSCALE_EXIT_NODE}

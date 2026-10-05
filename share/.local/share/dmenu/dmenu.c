@@ -755,15 +755,39 @@ usage(void)
 	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]");
 }
 
+/* blend color a toward color b by pct percent; both must be #rrggbb */
+static char *
+mixcolor(const char *a, const char *b, int pct)
+{
+	unsigned int ar, ag, ab, br, bg, bb;
+	char *out;
+
+	if (pct <= 0 || strlen(a) != 7 || strlen(b) != 7 || a[0] != '#' || b[0] != '#'
+	    || sscanf(a + 1, "%2x%2x%2x", &ar, &ag, &ab) != 3
+	    || sscanf(b + 1, "%2x%2x%2x", &br, &bg, &bb) != 3)
+		return strdup(a);
+	if (pct > 100)
+		pct = 100;
+	if (!(out = malloc(8)))
+		die("malloc:");
+	snprintf(out, 8, "#%02x%02x%02x",
+	         (ar * (100 - pct) + br * pct) / 100,
+	         (ag * (100 - pct) + bg * pct) / 100,
+	         (ab * (100 - pct) + bb * pct) / 100);
+	return out;
+}
+
 void
 readxresources(void) {
 	XrmInitialize();
 
 	char* xrm;
 	if ((xrm = XResourceManagerString(drw->dpy))) {
-		char *type;
+		char *type, *tmp;
 		XrmDatabase xdb = XrmGetStringDatabase(xrm);
 		XrmValue xval;
+		int mix = 14;        /* percent to lighten the background toward the foreground */
+		int accentsel = 0;   /* selection colour came from pywal's color4 */
 
 		if (XrmGetResource(xdb, "dmenu.font", "*", &type, &xval))
 			fonts[0] = strdup(xval.addr);
@@ -779,12 +803,24 @@ readxresources(void) {
 			colors[SchemeNorm][ColFg] = strdup(colors[SchemeNorm][ColFg]);
 		if (XrmGetResource(xdb, "dmenu.selbackground", "*", &type, &xval))
 			colors[SchemeSel][ColBg] = strdup(xval.addr);
-		else
+		else if (XrmGetResource(xdb, "dmenu.color4", "*", &type, &xval)) {
+			colors[SchemeSel][ColBg] = strdup(xval.addr);
+			accentsel = 1;
+		} else
 			colors[SchemeSel][ColBg] = strdup(colors[SchemeSel][ColBg]);
 		if (XrmGetResource(xdb, "dmenu.selforeground", "*", &type, &xval))
 			colors[SchemeSel][ColFg] = strdup(xval.addr);
+		else if (accentsel)  /* dark text on the accent */
+			colors[SchemeSel][ColFg] = strdup(colors[SchemeNorm][ColBg]);
 		else
 			colors[SchemeSel][ColFg] = strdup(colors[SchemeSel][ColFg]);
+
+		/* make dmenu visibly different from the terminal */
+		if (XrmGetResource(xdb, "dmenu.bgmix", "*", &type, &xval))
+			mix = atoi(xval.addr);
+		tmp = mixcolor(colors[SchemeNorm][ColBg], colors[SchemeNorm][ColFg], mix);
+		free(colors[SchemeNorm][ColBg]);
+		colors[SchemeNorm][ColBg] = tmp;
 
 		XrmDestroyDatabase(xdb);
 	}

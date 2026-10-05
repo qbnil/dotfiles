@@ -17,7 +17,7 @@ write() {
   notification=$(echo \"$multiline\") ;}
 
 sel() {
-  selection=$(tac "$histfile" | dmenu -p "Clipboard history:")
+  selection=$(tac "$histfile" | sed 's/^\(.\{100\}\).*/\1…/g' | dmenu -p "Clipboard history:" -l 10)
   [ -n "$selection" ] && echo "$selection" | sed "s/$placeholder/\n/g" | xclip -i -selection clipboard && notification="Copied to clipboard!" ;}
 
 case "$1" in
