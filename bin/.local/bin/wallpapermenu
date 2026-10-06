@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # slightly scuffed wallpaper picker menu for use with pywal - uses nsxiv if installed, otherwise uses dmenu
-FOLDER=/home/kent/.local/share/pictures/active-wallpaper-collection # wallpaper folder
+FOLDER=/home/kent/.local/share/pictures # wallpaper folder
 SCRIPT=/home/kent/.local/bin/pywal16 # script to run after wal for refreshing programs, etc.
 menu () {
         if command -v nsxiv >/dev/null; then 

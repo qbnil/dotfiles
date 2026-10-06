@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+# Immediate color update (fast path)
+ln -sf ~/.cache/wal/colors.Xresources ~/.Xresources
+cat ~/.Xresources ~/.cache/wal/xrdb_extra | xrdb -merge
+
+# Trigger xrdb refresh for terminals/applications that listen to it
+xdotool key super+F5 &
+
+# Force wallpaper redraw with xcompmgr-friendly approach
+# Instead of xrefresh (which blocks), use a minimal async redraw
+(
+  sleep 0.05  # Let xrdb settle
+  xrefresh &
+  wait
+) &
+
+# Background heavy operations so they don't block the shell
+(
+  # GTK theme regeneration for Thunar
+  if [[ -x "$HOME/.local/bin/regenerate-gtk-theme.sh" ]]; then
+    "$HOME/.local/bin/regenerate-gtk-theme.sh"
+  fi
+  # ln -sf ~/.cache/wal/colors-obsidian.css ~/dotfiles/helpbook/.obsidian/snippets/colors-obsidian.css
+) &
+
+# Return immediately without waiting for background jobs
+exit 0

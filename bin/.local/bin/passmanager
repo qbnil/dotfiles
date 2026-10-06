@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLEAR_AFTER=45
+TMP=""
+trap '[ -n "$TMP" ] && rm -f "$TMP"' EXIT
+
+notify() {
+    notify-send "$1" "$(basename "$2")" -t 1500 -u low 2>/dev/null || true
+}
+
+copy_entry() {
+    local name="$1"
+    # decrypt once in the foreground so gpg-agent caches the passphrase / shows pinentry
+    pass show "$name" >/dev/null 2>&1 || return 1
+    # detach into its own session so closing the window can't kill the clipboard owner
+    PASSWORD_STORE_CLIP_TIME="$CLEAR_AFTER" \
+        setsid -f pass -c "$name" </dev/null >/dev/null 2>&1
+    sleep 0.3   # give the copier time to grab the selection before the window closes
+}
+
+# ── list / search / preview / edit ──────────────────────────────────
+get_passwords() {
+    local dir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+    { find "$dir" -name '*.gpg' -type f 2>/dev/null || true; } \
+        | sed "s|^$dir/||; s|\.gpg$||" | sort
+}
+
+delete_entry() {
+    local name="$1" ans=""
+    printf '\n\033[31mDelete "%s"?\033[0m [y/N] ' "$name" >&2
+    read -r -n1 ans </dev/tty || ans=""
+    echo >&2
+    if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
+        if pass rm -f "$name" </dev/null >/dev/null 2>&1; then
+            notify "✓ Deleted" "$name"
+        else
+            notify "✗ Delete failed" "$name"
+        fi
+    fi
+    return 0
+}
+
+search_entries() {
+    local q="${1:-}"
+    [ -n "$q" ] || { get_passwords; return 0; }
+    {
+        # 1) matches in the entry name
+        get_passwords | grep -iF -- "$q" || true
+        # 2) matches inside entries: pass grep prints a colored "dir/name:" header per hit
+        pass grep -iF -- "$q" </dev/null 2>/dev/null \
+            | sed -n $'s/^\033\\[94m\\(.*\\)\033\\[1m\\(.*\\)\033\\[0m:$/\\1\\2/p' || true
+    } | sort -u
+}
+
+preview_entry() {
+    pass show "$1" 2>/dev/null | awk '
+        NR==1 { printf "\033[2m●●●●●●●●●●●●\033[0m\n"; next }
+        NR>14 { exit }
+        match($0, /^[^:]{1,20}:/) {
+            printf "\033[36m%s\033[0m%s\n", substr($0,1,RLENGTH), substr($0,RLENGTH+1); next }
+        { print }' || true
+}
+
+edit_entry() {
+    local name="$1" editor before
+    editor="${VISUAL:-${EDITOR:-}}"
+    if [ -z "$editor" ]; then
+        if command -v nvim >/dev/null; then editor=nvim; else editor=vim; fi
+    fi
+
+    umask 077
+    TMP=$(mktemp -p "${XDG_RUNTIME_DIR:-/tmp}" --suffix=.txt)
+
+    if ! pass show "$name" >"$TMP" 2>/dev/null; then
+        notify "✗ Decrypt failed" "$name"; return 0
+    fi
+    before=$(sha256sum <"$TMP")
+
+    $editor "$TMP" || return 0     # :cq aborts without saving
+
+    if [ -s "$TMP" ] && [ "$(sha256sum <"$TMP")" != "$before" ]; then
+        if pass insert -m -f "$name" <"$TMP" >/dev/null 2>&1; then
+            notify "✓ Updated" "$name"
+        else
+            notify "✗ Save failed" "$name"
+        fi
+    fi
+}
+
+add_entry() {
+    local dir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+    local name choice len sym pw pw2 ans ok=0
+
+    printf '\n\033[36mNew entry\033[0m  (e.g. email/gmail · empty name = cancel)\n' >&2
+    read -r -e -p "Name: " name </dev/tty || return 0
+    name=$(printf '%s' "$name" | sed 's|^[[:space:]/]*||; s|[[:space:]/]*$||')
+    [ -n "$name" ] || return 0
+    if [[ "$name" == *..* ]]; then notify "✗ Invalid name" "$name"; return 0; fi
+    if [ -e "$dir/$name.gpg" ]; then notify "✗ Already exists" "$name"; return 0; fi
+
+    printf '[g] generate password   [m] enter my own   (any other key = cancel) ' >&2
+    read -r -n1 choice </dev/tty || return 0
+    echo >&2
+
+    case "$choice" in
+        g|G)
+            read -r -p "Length [20]: " len </dev/tty || return 0
+            if [[ "$len" =~ ^[0-9]+$ ]] && (( 10#$len >= 4 )); then
+                len=$((10#$len))
+            else
+                len=20
+            fi
+            read -r -n1 -p "Include symbols? [Y/n] " sym </dev/tty || return 0
+            echo >&2
+            if [[ "$sym" =~ ^[nN]$ ]]; then
+                if pass generate -n "$name" "$len" </dev/null >/dev/null 2>&1; then ok=1; fi
+            else
+                if pass generate "$name" "$len" </dev/null >/dev/null 2>&1; then ok=1; fi
+            fi
+            ;;
+        m|M)
+            read -r -s -p "Password: " pw </dev/tty || return 0; echo >&2
+            read -r -s -p "Repeat:   " pw2 </dev/tty || return 0; echo >&2
+            if [ -z "$pw" ]; then notify "✗ Empty password" "$name"; return 0; fi
+            if [ "$pw" != "$pw2" ]; then notify "✗ Passwords differ" "$name"; return 0; fi
+            if printf '%s\n' "$pw" | pass insert -e "$name" >/dev/null 2>&1; then ok=1; fi
+            pw=""; pw2=""
+            ;;
+        *) return 0 ;;
+    esac
+
+    if [ "$ok" -ne 1 ]; then notify "✗ Create failed" "$name"; return 0; fi
+    notify "✓ Created" "$name"
+
+    read -r -n1 -p "Open editor to add email/URL/notes? [y/N] " ans </dev/tty || ans=""
+    echo >&2
+    case "$ans" in
+        y|Y) edit_entry "$name" ;;
+    esac
+}
+
+main() {
+    local self n h name
+    self=$(printf '%q' "$(readlink -f "$0")")
+
+    n=$(get_passwords | wc -l)
+    h=$(( n + 3 )); (( h > 14 )) && h=14; (( h < 7 )) && h=7
+
+    name=$(get_passwords | fzf \
+        --disabled \
+        --bind "change:reload(sleep 0.3; bash $self search {q})" \
+        --height="$h" --layout=reverse --margin=0 --padding=0 \
+        --border=rounded --border-label=' 󰌆 pass · ⏎ copy · ^A add · ^E edit · ^D del ' --border-label-pos=3 \
+        --prompt='❯ ' --pointer='▌' --info=inline-right --no-scrollbar \
+        --preview "$self preview {}" \
+        --preview-window='right,42%,border-left,wrap' \
+        --bind "ctrl-a:execute(bash $self add)+clear-query+reload(bash $self search)" \
+        --bind "ctrl-e:execute(bash $self edit {})+reload(bash $self search {q})+refresh-preview" \
+        --bind "ctrl-d:execute(bash $self delete {} || true)+reload(bash $self search {q})+refresh-preview" \
+        --color='bg+:#313244,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,border:#585b70,label:#cba6f7' \
+        --color='prompt:#cba6f7,pointer:#f5c2e7,info:#6c7086,gutter:-1,preview-border:#45475a' \
+    ) || exit 0
+
+    [ -n "$name" ] || exit 0
+    if copy_entry "$name"; then notify "✓ Copied (clears in ${CLEAR_AFTER}s)" "$name"
+    else notify "✗ Copy failed" "$name"; fi
+}
+
+case "${1:-}" in
+    preview) preview_entry "$2" ;;
+    edit)    edit_entry "$2" ;;
+    delete)  delete_entry "$2" ;;
+    add)     add_entry ;;
+    search)  search_entries "${2:-}" ;;
+    *)       main ;;
+esac

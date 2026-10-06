@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Arch Linux cleanup script - removes unnecessary files and frees up space
+
+echo "🧹 Starting system cleanup..."
+echo
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# 1. Empty trash
+echo -e "${BLUE}1. Emptying trash...${NC}"
+rm -rf ~/.local/share/Trash/* 2>/dev/null
+echo -e "${GREEN}✓ Trash cleared${NC}"
+echo
+
+# 2. Remove orphaned packages
+echo -e "${BLUE}2. Removing orphaned packages...${NC}"
+orphaned=$(pacman -Qdtq)
+if [ -z "$orphaned" ]; then
+    echo "No orphaned packages found"
+else
+    sudo pacman -R $(pacman -Qdtq) --noconfirm
+    echo -e "${GREEN}✓ Orphaned packages removed${NC}"
+fi
+echo
+
+# 3. Clean pacman cache (keep 3 versions)
+echo -e "${BLUE}3. Cleaning pacman cache (keeping 3 versions)...${NC}"
+sudo paccache -r -k 3 -q
+echo -e "${GREEN}✓ Pacman cache cleaned${NC}"
+echo
+
+# 4. Clean old journals (keep 7 days)
+echo -e "${BLUE}4. Cleaning old journals (keeping 7 days)...${NC}"
+sudo journalctl --vacuum=7d
+echo
+
+# 5. Clean old logs (older than 90 days)
+echo -e "${BLUE}5. Cleaning old logs (older than 90 days)...${NC}"
+sudo find /var/log -type f -mtime +90 -delete 2>/dev/null
+echo -e "${GREEN}✓ Old logs cleaned${NC}"
+echo
+
+# 6. Clean Downloads folder
+echo -e "${BLUE}6. Clearing Downloads folder...${NC}"
+rm -rf ~/Downloads/*
+echo -e "${GREEN}✓ Downloads cleared${NC}"
+echo
+
+# 7. Clean cache directories
+echo -e "${BLUE}7. Cleaning cache files...${NC}"
+rm -rf ~/.cache/pip
+rm -rf ~/.cache/mesa_shader_cache 2>/dev/null
+echo -e "${GREEN}✓ Cache cleaned${NC}"
+echo
+
+# Show disk space saved
+echo -e "${BLUE}Checking freed space:${NC}"
+df -h / | tail -1
+echo
+
+echo -e "${GREEN}✅ Cleanup complete!${NC}"

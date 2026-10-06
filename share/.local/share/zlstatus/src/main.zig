@@ -133,17 +133,20 @@ fn setStatus() void {
 var bcfd: c_int = -1;
 var fBatCapacity: u8 = 0;
 fn readBatCapacity() void {
+    // No battery (desktop / VM): leave fBatCapacity at 0 and skip I/O.
+    if (bcfd < 0) return;
     var buf: [8]u8 = undefined;
     _ = c.lseek(bcfd, 0, c.SEEK_SET);
-    const n: usize = @intCast(c.read(bcfd, &buf, 8));
-    if (n < 1) @panic("read bcfd");
-    if (buf[n - 1] == '\n')
-        buf[n - 1] = 0
+    const n: isize = c.read(bcfd, &buf, 8);
+    if (n < 1) return; // transient read error — keep last known value
+    const un: usize = @intCast(n);
+    if (buf[un - 1] == '\n')
+        buf[un - 1] = 0
     else
-        buf[n] = 0;
+        buf[un] = 0;
     var endptr: [*c]u8 = undefined;
     const value: c_long = c.strtol(&buf, &endptr, 10);
-    if (endptr == @as([*c]u8, @ptrCast(&buf))) @panic("strtol");
+    if (endptr == @as([*c]u8, @ptrCast(&buf))) return;
     fBatCapacity = @intCast(value);
 }
 
@@ -899,11 +902,16 @@ pub fn main() u8 {
     if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, timerfd, &event) < 0)
         @panic("epoll_ctl");
 
-    // Battery capacity
+    // Battery capacity — optional (desktops / VMs often have no BAT*).
+    // Try BAT0 then BAT1; if neither exists, status shows B:0 and we skip updates.
     bcfd = c.open(BAT ++ "capacity", c.O_RDONLY);
-    if (bcfd < 0) @panic("open BAT capacity");
-    defer _ = c.close(bcfd);
-    readBatCapacity();
+    if (bcfd < 0) bcfd = c.open("/sys/class/power_supply/BAT1/capacity", c.O_RDONLY);
+    if (bcfd >= 0) {
+        // closed at process exit; no defer so the fd stays valid for the event loop
+        readBatCapacity();
+    } else {
+        fBatCapacity = 0;
+    }
 
     // ALSA
     if (c.snd_mixer_open(&mixer, 0) < 0 or
