@@ -147,13 +147,19 @@ print_success "System updated"
 # ----------------------------------------------------------------------------
 # Essential tooling (stow, git, build tools) - needed before anything else
 # ----------------------------------------------------------------------------
-print_status "Installing essential tools (stow, git, base-devel)..."
-CORE_PKGS=(base-devel git stow curl wget unzip rsync openssh)
-pacman_install "${CORE_PKGS[@]}"
+print_status "Checking for GNU Stow..."
 if ! command -v stow &>/dev/null; then
-    print_error "GNU Stow could not be installed - cannot continue."
-    exit 1
+    print_status "Installing GNU Stow..."
+    if ! sudo pacman -S --needed --noconfirm stow; then
+        print_error "GNU Stow installation failed - cannot continue."
+        exit 1
+    fi
 fi
+print_success "GNU Stow is available"
+
+print_status "Installing essential tools (git, base-devel)..."
+CORE_PKGS=(base-devel git curl wget unzip rsync openssh)
+pacman_install "${CORE_PKGS[@]}"
 print_success "Essential tools installed"
 
 # ----------------------------------------------------------------------------
@@ -248,27 +254,27 @@ print_success "Backup created"
 # ----------------------------------------------------------------------------
 # Stow
 # ----------------------------------------------------------------------------
-# Note: the 'systemd' package is intentionally NOT here. It holds files for /etc
-# (NVIDIA suspend fix); stowing it into $HOME would just create ~/etc.
-# On real NVIDIA hardware use ~/.local/bin/fix-nvidia-suspend instead.
+# Note: the 'systemd' package is intentionally NOT stowed into $HOME
+# It contains /etc files which will be installed separately to system directories
 PACKAGES=(
     bash
     bin
-    config
     dunst
+    feh
+    flameshot
     git
+    gtk
     mpd
+    nvidia
     nvim
     share
     shell
     tmux
+    wal
     wallpapers
     x11
     yazi
     zsh
-    vxwm
-    dmenu
-    picom
 )
 
 # Stow refuses to touch files that already exist (e.g. the default ~/.bashrc on a
@@ -299,16 +305,29 @@ stow_pkg() {
 
 print_status "Deploying dotfiles with GNU Stow..."
 cd "$DOTFILES_DIR"
+
+# First pass: stow all packages
 for package in "${PACKAGES[@]}"; do
     if [ -d "$DOTFILES_DIR/$package" ]; then
         print_status "Stowing $package..."
         if stow_pkg "$package"; then
-            print_success "$package stowed"
+            print_success "$package stowed (symlinked to $HOME)"
         else
             FAILED_STOW+=("$package")
         fi
     fi
 done
+
+print_success "All dotfiles stowed successfully!"
+echo ""
+print_status "Your home directory now has clean symlinks:"
+echo "  ~/.bashrc, ~/.bash_profile  -> bash/"
+echo "  ~/.zshenv                   -> zsh/.zshenv  (ZDOTDIR=~/.config/zsh)"
+echo "  ~/.xinitrc                  -> x11/.xinitrc"
+echo "  ~/.config/{bash,zsh,nvim,tmux,dunst,git,mpd,yazi,shell,x11,...}"
+echo "  ~/.local/bin/               -> bin/"
+echo "  ~/.local/share/             -> share/ + wallpapers/"
+echo ""
 
 # ----------------------------------------------------------------------------
 # Secrets template
@@ -352,28 +371,29 @@ fi
 # ----------------------------------------------------------------------------
 print_status "Building custom programs..."
 
-# Stale copies in /usr/local/bin (from an earlier 'sudo make install' or copied from
-# another machine) shadow the freshly built ones and can crash against the VM's
-# libraries (e.g. "free(): invalid pointer"). Move them aside.
-for b in dmenu dmenu_run stest st vxwm zlstatus; do
+# Clean up any old binaries that might conflict
+print_status "Cleaning up old binaries..."
+for b in dmenu dmenu_run stest st vxwm zlstatus nsxiv slock; do
     if [ -e "/usr/local/bin/$b" ]; then
-        print_warning "Stale /usr/local/bin/$b found, moving to $b.bak"
-        sudo mv -f "/usr/local/bin/$b" "/usr/local/bin/$b.bak"
+        print_warning "Removing old /usr/local/bin/$b"
+        sudo rm -f "/usr/local/bin/$b"
+    fi
+    if [ -e "$HOME/.local/bin/$b" ]; then
+        print_warning "Removing old ~/.local/bin/$b"
+        rm -f "$HOME/.local/bin/$b"
     fi
 done
 hash -r
 
-# build_make NAME DIR BIN...   (clean build, then install binaries to ~/.local/bin)
+# build_make NAME DIR BIN...   (clean build with sudo make clean install)
 build_make() {
     local name="$1" dir="$2"; shift 2
     [ -d "$dir" ] || return 0
     print_status "Building $name..."
     if ( cd "$dir" \
-         && { make clean >/dev/null 2>&1 || true; } \
-         && rm -f ./*.o \
-         && make -j"$JOBS" \
-         && install -Dm755 -t "$HOME/.local/bin" "$@" ); then
-        print_success "$name built and installed"
+         && sudo make clean >/dev/null 2>&1 \
+         && sudo make -j"$JOBS" install ); then
+        print_success "$name built and installed with 'sudo make clean install'"
     else
         print_error "$name build failed (continuing)"
         FAILED_BUILDS+=("$name")
@@ -383,14 +403,14 @@ build_make() {
 build_make vxwm "$HOME/.local/share/vxwm"        vxwm
 build_make dmenu "$HOME/.local/share/dmenu"       dmenu stest
 build_make st    "$HOME/.local/share/st-terminal" st
+build_make nsxiv "$HOME/.local/share/nsxiv"       nsxiv
 
 if [ -d "$HOME/.local/share/slock" ]; then
     print_status "Building slock..."
     if ( cd "$HOME/.local/share/slock" \
-         && { make clean >/dev/null 2>&1 || true; } \
-         && make -j"$JOBS" \
-         && sudo install -Dm4755 slock /usr/local/bin/slock ); then
-        print_success "slock built and installed"
+         && sudo make clean >/dev/null 2>&1 \
+         && sudo make -j"$JOBS" install ); then
+        print_success "slock built and installed with 'sudo make clean install'"
     else
         print_error "slock build failed (continuing)"
         FAILED_BUILDS+=("slock")
@@ -402,8 +422,8 @@ if [ -d "$HOME/.local/share/zlstatus" ]; then
     if command -v zig &>/dev/null \
        && ( cd "$HOME/.local/share/zlstatus" \
             && zig build \
-            && install -Dm755 zig-out/bin/zlstatus "$HOME/.local/bin/zlstatus" ); then
-        print_success "zlstatus built and installed"
+            && sudo install -Dm755 zig-out/bin/zlstatus /usr/local/bin/zlstatus ); then
+        print_success "zlstatus built and installed with zig"
     else
         print_error "zlstatus build failed (is zig installed? low RAM in the VM?) (continuing)"
         FAILED_BUILDS+=("zlstatus")
@@ -413,17 +433,40 @@ fi
 cd "$DOTFILES_DIR"
 
 # Sanity check: are all shared libraries of the built binaries resolvable?
-for b in vxwm dmenu st zlstatus; do
-    if [ -x "$HOME/.local/bin/$b" ] && ldd "$HOME/.local/bin/$b" 2>/dev/null | grep -q 'not found'; then
+for b in vxwm dmenu st zlstatus nsxiv; do
+    if [ -x "/usr/local/bin/$b" ] && ldd "/usr/local/bin/$b" 2>/dev/null | grep -q 'not found'; then
         print_warning "$b has unresolved libraries:"
-        ldd "$HOME/.local/bin/$b" | grep 'not found' || true
+        ldd "/usr/local/bin/$b" | grep 'not found' || true
     fi
 done
 
 # ----------------------------------------------------------------------------
-# ZDOTDIR for zsh
+# Install systemd files (to system directories, not stowed into $HOME)
 # ----------------------------------------------------------------------------
-if ! grep -q "ZDOTDIR" "$HOME/.zshenv" 2>/dev/null; then
+if [ -d "$DOTFILES_DIR/systemd/etc" ]; then
+    print_status "Installing systemd configuration files..."
+    if $IS_VM; then
+        print_warning "Running in VM - skipping NVIDIA-specific systemd files"
+    else
+        # Install /etc files for NVIDIA suspend fix on real hardware
+        if [ -d "$DOTFILES_DIR/systemd/etc/modprobe.d" ]; then
+            sudo cp -r "$DOTFILES_DIR/systemd/etc/modprobe.d/"* /etc/modprobe.d/ 2>/dev/null || true
+            print_success "Installed modprobe.d configuration"
+        fi
+        if [ -d "$DOTFILES_DIR/systemd/etc/systemd" ]; then
+            sudo cp -r "$DOTFILES_DIR/systemd/etc/systemd/"* /etc/systemd/system/ 2>/dev/null || true
+            sudo systemctl daemon-reload
+            print_success "Installed systemd services"
+        fi
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# ZDOTDIR for zsh (stow already links ~/.zshenv from the zsh package)
+# ----------------------------------------------------------------------------
+if [ -L "$HOME/.zshenv" ] || grep -q "ZDOTDIR" "$HOME/.zshenv" 2>/dev/null; then
+    print_success "ZDOTDIR already configured via stow (~/.zshenv)"
+else
     print_status "Setting up ZDOTDIR..."
     echo 'export ZDOTDIR="$HOME/.config/zsh"' >> "$HOME/.zshenv"
     print_success "ZDOTDIR configured"
@@ -480,34 +523,48 @@ print_success "Services configured"
 # ----------------------------------------------------------------------------
 echo ""
 print_success "Dotfiles installation finished!"
+echo ""
 
 if [ "${#FAILED_PKGS[@]}" -gt 0 ]; then
     print_warning "Packages that failed to install:"
     printf '     - %s\n' "${FAILED_PKGS[@]}"
+    echo ""
 fi
 if [ "${#FAILED_BUILDS[@]}" -gt 0 ]; then
     print_warning "Builds that failed: ${FAILED_BUILDS[*]}"
+    echo ""
 fi
 if [ "${#FAILED_STOW[@]}" -gt 0 ]; then
     print_warning "Stow packages that failed: ${FAILED_STOW[*]}"
+    echo ""
 fi
 
+print_status "Summary of installed programs:"
+echo "  Custom programs (compiled with 'sudo make clean install'):"
+for prog in vxwm dmenu st slock nsxiv zlstatus; do
+    if [ -x "/usr/local/bin/$prog" ]; then
+        echo "    ✓ $prog -> /usr/local/bin/$prog"
+    else
+        echo "    ✗ $prog (build failed or not found)"
+    fi
+done
 echo ""
+
 print_warning "Next steps:"
 echo "  1. Configure personal information:"
-echo "     - Edit ~/.config/git/config and replace YOUR_EMAIL@example.com with your email"
+echo "     - Edit ~/.config/git/config and replace YOUR_EMAIL@example.com"
 echo "     - Replace YOUR_NAME with your actual name"
 echo "  2. Edit ~/.config/shell/secrets.sh and add your API keys"
 echo "  3. Review ~/.config/shell/xdg-env.sh for environment variables"
 if [ ! -d "/usr/lib/modules/$(uname -r)" ]; then
-    echo "  4. REBOOT now (the kernel was upgraded during this run)"
+    echo "  4. REBOOT now (kernel was upgraded)"
 else
     echo "  4. Log out and log back in to apply all changes"
 fi
-echo "  5. Make sure ~/.local/bin is in your PATH, then run 'startx'"
+echo "  5. Run 'startx' to start your X session"
 if $IS_VM && [[ "$VM_TYPE" == "kvm" || "$VM_TYPE" == "qemu" ]]; then
-    echo "  6. (QEMU) For clipboard sharing / auto-resize add 'spice-vdagent &' to your ~/.xinitrc"
-    echo "     and use a virtio or qxl display with SPICE in your VM settings"
+    echo "  6. (QEMU) Add 'spice-vdagent &' to ~/.xinitrc for clipboard sharing"
 fi
 echo ""
 print_status "Backup saved at: $BACKUP_DIR"
+print_status "See STOW_STRUCTURE.md for details on how the symlinks work"

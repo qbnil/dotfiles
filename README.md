@@ -25,29 +25,25 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 
 ```
 .
-├── bash/              # Bash configuration
-├── shell/             # Common shell environment (XDG, aliases, variables)
-├── zsh/               # Zsh configuration
-├── x11/               # X11 and xinitrc
-├── nvim/              # Neovim configuration
-├── tmux/              # Tmux configuration
-├── git/               # Git configuration
-├── dunst/             # Dunst notification daemon
-├── mpd/               # Music Player Daemon
-├── yazi/              # Yazi file manager
-├── systemd/           # System configuration (Nvidia suspend fix, modprobe)
-├── bin/               # Personal scripts in ~/.local/bin
-├── wallpapers/        # Wallpaper collection for pywal
-├── vxwm/              # vxwm window manager config
-├── dmenu/             # dmenu launcher config
-├── picom/             # Picom compositor config (optional)
-├── share/             # ~/.local/share with vendored source trees
-├── bootstrap/         # Package lists and installation script
-│   ├── packages-native.txt
-│   ├── packages-aur.txt
-│   └── install.sh
-└── install.sh         # Main installation script
+├── bash/              # ~/.bashrc, ~/.bash_profile, ~/.config/bash/
+├── zsh/               # ~/.zshenv, ~/.config/zsh/ (ZDOTDIR)
+├── shell/             # Shared XDG env + secrets example
+├── x11/               # ~/.xinitrc, ~/.config/x11/
+├── nvim/              # Neovim
+├── tmux/              # Tmux (+ plugins tree)
+├── dunst/ git/ mpd/ yazi/
+├── feh/ flameshot/ gtk/ nvidia/ wal/   # small app configs
+├── bin/               # ~/.local/bin scripts
+├── share/             # Vendored sources: vxwm, st, dmenu, slock, nsxiv, zlstatus, cursors
+├── wallpapers/        # ~/.local/share/wallpapers/
+├── systemd/           # /etc files (not stowed; installed by install.sh)
+├── bootstrap/         # packages-native.txt, packages-aur.txt
+├── install.sh         # Full machine bootstrap
+└── test-stow.sh       # Dry-run stow only
 ```
+
+Each directory is a **Stow package**. There is no monolithic `config/` package — that caused path conflicts.
+
 
 ## Installation on Fresh Arch System
 

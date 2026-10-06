@@ -1,55 +1,37 @@
-# Secrets and credentials - NEVER commit these
+# Runtime / machine-local
+**/.cache/
+**/__pycache__/
+*.pyc
+*.o
+*.a
+*.so
+*.swp
+*~
+.DS_Store
+
+# Build artifacts inside vendored trees
+share/.local/share/zlstatus/zig-out/
+share/.local/share/zlstatus/zig-cache/
+share/.local/share/*/config.h.bak
+
+# Secrets
 **/secrets.sh
-**/secret
-**/credentials*
-**/*_key
-**/*_token
+**/*secret*
 **/*.pem
 **/*.key
-config/.config/shell/secrets.sh
-config/.config/ghgrab/config.json
-config/.config/anthropic/credentials/
-config/.config/claude/claude.json
-config/.config/ssh/
-shell/.config/shell/secrets.sh
-**/.env
-**/.env.*
 
-# Build artifacts - regenerate on each machine
-**/*.o
-**/*.so
-**/*.a
-**/.zig-cache/
-**/zig-out/
-share/.local/share/vxwm/vxwm
-share/.local/share/dmenu/dmenu
-share/.local/share/slock/slock
-share/.local/share/st-terminal/st
-share/.local/share/nsxiv/nsxiv
-share/.local/share/vcompmgr/vcompmgr
-share/.local/share/zlstatus/zig-out/
+# MPD runtime DB
+mpd/.config/mpd/database
+mpd/.config/mpd/state
+mpd/.config/mpd/pid
+mpd/.config/mpd/log
 
-# Runtime files
-**/.zcompdump*
-**/.zsh_history
-**/zsh_history
-**/.bash_history
-**/.lesshst
-**/.viminfo
-**/.wget-hsts
-**/.Xauthority
-**/Xauthority
+# Editor / plugin lock noise (keep lazy-lock if you want reproducible nvim)
+# nvim/.config/nvim/lazy-lock.json
 
-# Cache directories
-**/.cache/
-**/cache/
+# Large binary wallpaper dumps (store elsewhere or git-lfs)
+# wallpapers/.local/share/wallpapers/*
+# !wallpapers/.local/share/wallpapers/.gitkeep
 
-# Claude working directories
-**/.claude/
-
-# Editor and IDE files
-**/.vscode/
-**/.idea/
-**/*.swp
-**/*.swo
-**/*~
+# Stow residual
+.stow-local-ignore

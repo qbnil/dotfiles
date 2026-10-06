@@ -1,7 +1,2 @@
-#
-# ~/.bash_profile
-#
-
-[[ -f ~/.bashrc ]] && . ~/.bashrc
-
-
+# ~/.config/bash/bash_profile
+[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh" ] && . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh"

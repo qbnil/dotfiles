@@ -66,3 +66,9 @@ export LESS_TERMCAP_ue="$(printf '%b' '\[\033[0m\]')"
 
 # Source secrets file if it exists (API keys, tokens, etc.)
 [ -f "$XDG_CONFIG_HOME/shell/secrets.sh" ] && source "$XDG_CONFIG_HOME/shell/secrets.sh"
+
+# Prefer user-local binaries
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
