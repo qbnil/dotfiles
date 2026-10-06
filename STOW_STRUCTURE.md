@@ -14,7 +14,7 @@ creates symlinks so that e.g. `bash/.bashrc` becomes `~/.bashrc`.
 |-------------|----------------|
 | `bash/`     | `~/.bashrc`, `~/.bash_profile`, `~/.config/bash/` |
 | `zsh/`      | `~/.zshenv`, `~/.config/zsh/` (`ZDOTDIR`) |
-| `x11/`      | `~/.xinitrc`, `~/.config/x11/` |
+| `x11/`      | `~/.xinitrc` |
 | `shell/`    | `~/.config/shell/` (shared XDG env + secrets example) |
 | `nvim/`     | `~/.config/nvim/` |
 | `tmux/`     | `~/.config/tmux/` |
@@ -28,7 +28,7 @@ creates symlinks so that e.g. `bash/.bashrc` becomes `~/.bashrc`.
 | `nvidia/`   | `~/.config/nvidia/` |
 | `wal/`      | `~/.config/wal/templates/` |
 | `bin/`      | `~/.local/bin/` |
-| `share/`    | `~/.local/share/{vxwm,st-terminal,dmenu,slock,nsxiv,zlstatus,cursors}/` |
+| `share/`    | `~/.config/{vxwm,st-terminal,dmenu,slock,nsxiv,zlstatus}/` + `~/.local/share/honkai-star-rail-cursors/` |
 | `wallpapers/` | `~/.local/share/wallpapers/` |
 
 ## Not stowed
@@ -43,7 +43,7 @@ creates symlinks so that e.g. `bash/.bashrc` becomes `~/.bashrc`.
 
 1. **One owner per path** — never put the same file in two packages (the old monolithic `config/` package was removed for this reason).
 2. **No runtime state in packages** — MPD database, wal-generated `colors.Xresources`, browser profiles, etc. stay out of the tree.
-3. **Home-level entry points live in the package root** — `.xinitrc`, `.zshenv`, `.bashrc` are real files under `x11/`, `zsh/`, `bash/` so Stow creates them in `~`.
+3. **Home-level entry points** — `.zshenv`, `.bashrc`, and `.xinitrc` live at package roots (`zsh/`, `bash/`, `x11/`) and stow directly into `~`.
 4. **`.Xresources` is not stowed** — your live setup points it at `~/.cache/wal/colors.Xresources` (pywal). `xinitrc` merges that at session start.
 5. **Secrets** — copy `~/.config/shell/secrets.sh.example` → `secrets.sh` (gitignored).
 

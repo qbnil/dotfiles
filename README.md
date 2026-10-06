@@ -144,11 +144,11 @@ cd ~/dotfiles
 stow bash shell zsh x11 nvim tmux git dunst mpd yazi btop scripts
 
 # Build custom programs
-cd ~/.local/share/vxwm && make && install -Dm755 vxwm ~/.local/bin/vxwm
-cd ~/.local/share/dmenu && make && install -Dm755 dmenu stest ~/.local/bin/
-cd ~/.local/share/st-terminal && make && install -Dm755 st ~/.local/bin/st
-cd ~/.local/share/slock && make && sudo install -Dm4755 slock /usr/local/bin/slock
-cd ~/.local/share/zlstatus && zig build && install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
+cd ~/.config/vxwm && make && install -Dm755 vxwm ~/.local/bin/vxwm
+cd ~/.config/dmenu && make && install -Dm755 dmenu stest ~/.local/bin/
+cd ~/.config/st-terminal && make && install -Dm755 st ~/.local/bin/st
+cd ~/.config/slock && make && sudo install -Dm4755 slock /usr/local/bin/slock
+cd ~/.config/zlstatus && zig build && install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 
 # Set up ZDOTDIR
 echo 'export ZDOTDIR="$HOME/.config/zsh"' > ~/.zshenv
@@ -200,7 +200,7 @@ stow --simulate --verbose packagename
 
 ### Window Manager (vxwm)
 
-Custom tiling window manager built from source. Configuration in `~/.local/share/vxwm/config.h`.
+Custom tiling window manager built from source. Configuration in `~/.config/vxwm/config.h`.
 
 Key features:
 - Dynamic tiling layouts
@@ -257,8 +257,8 @@ stow -R bash shell zsh x11 nvim tmux git dunst mpd yazi btop scripts
 ### Rebuild custom programs
 
 ```bash
-cd ~/.local/share/vxwm && make clean && make && install -Dm755 vxwm ~/.local/bin/vxwm
-cd ~/.local/share/dmenu && make clean && make && install -Dm755 dmenu stest ~/.local/bin/
+cd ~/.config/vxwm && make clean && make && install -Dm755 vxwm ~/.local/bin/vxwm
+cd ~/.config/dmenu && make clean && make && install -Dm755 dmenu stest ~/.local/bin/
 # etc.
 ```
 

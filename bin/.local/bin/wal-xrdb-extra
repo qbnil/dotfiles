@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Write ~/.cache/wal/xrdb_extra so vxwm XRDB sees dwm.color0 / dwm.color6.
+# Safe to run after every wal; pywal16 will merge this file.
+set -euo pipefail
+WAL="${HOME}/.cache/wal"
+XRES="${WAL}/colors.Xresources"
+[[ -f "$XRES" ]] || { echo "Run wal first"; exit 1; }
+c0=$(sed -n 's/^\*\.color0:[[:space:]]*//p' "$XRES" | head -1)
+c6=$(sed -n 's/^\*\.color6:[[:space:]]*//p' "$XRES" | head -1)
+c0=${c0:-#091207}
+c6=${c6:-#B7A05A}
+mkdir -p "$WAL"
+cat > "${WAL}/xrdb_extra" << XRDB
+! vxwm XRDB module (dwm.color*)
+dwm.color0:           ${c0}
+dwm.color6:           ${c6}
+dwm.normbordercolor:  ${c0}
+dwm.normbgcolor:      ${c0}
+dwm.normfgcolor:      ${c6}
+dwm.selbordercolor:   ${c6}
+dwm.selbgcolor:       ${c6}
+dwm.selfgcolor:       ${c0}
+XRDB
+echo "Wrote ${WAL}/xrdb_extra"

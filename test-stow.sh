@@ -52,6 +52,7 @@ cat << 'TREE'
   ~/.bashrc, ~/.bash_profile     → bash/
   ~/.zshenv                      → zsh/.zshenv   (sets ZDOTDIR)
   ~/.xinitrc                     → x11/.xinitrc
+  ~/.xinitrc                     → x11/.xinitrc
   ~/.config/bash/                → bash/.config/bash/
   ~/.config/zsh/                 → zsh/.config/zsh/
   ~/.config/nvim/                → nvim/.config/nvim/
@@ -64,7 +65,8 @@ cat << 'TREE'
   ~/.config/x11/                 → x11/.config/x11/
   ~/.config/feh,flameshot,gtk-3.0,nvidia,wal/ …
   ~/.local/bin/                  → bin/
-  ~/.local/share/{vxwm,st,…}/    → share/
+  ~/.config/{vxwm,st,…}/         → share/.config/
+  ~/.local/share/cursors/        → share/.local/share/
   ~/.local/share/wallpapers/     → wallpapers/
 TREE
 echo ""

@@ -25,7 +25,7 @@ export NODE_REPL_HISTORY="$XDG_DATA_HOME/node_repl_history"
 export SQLITE_HISTORY="$XDG_DATA_HOME/sqlite_history"
 export TERMINFO="$XDG_DATA_HOME/terminfo"
 export TERMINFO_DIRS="$XDG_DATA_HOME/terminfo:/usr/share/terminfo"
-export XINITRC="$XDG_CONFIG_HOME/x11/xinitrc"
+export XINITRC="$HOME/.xinitrc"
 export XPROFILE="$XDG_CONFIG_HOME/x11/xprofile"
 export XRESOURCES="$XDG_CONFIG_HOME/x11/Xresources"
 export FFMPEG_DATADIR="$XDG_CONFIG_HOME/ffmpeg"
@@ -72,3 +72,4 @@ case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
+

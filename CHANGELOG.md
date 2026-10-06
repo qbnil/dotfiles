@@ -130,3 +130,23 @@ Run `./install.sh` to:
 - `STOW_STRUCTURE.md` - Detailed explanation of the Stow directory structure
 - `README.md` - General dotfiles documentation
 - `OVERVIEW.md` - Overview of the dotfiles configuration
+
+## 2026-10-06 — vxwm build fix
+
+- **Root cause of vxwm build failure**: `config.h` contained
+  `#include "$HOME/.cache/wal/colors-wal-dwm.h"` which is invalid C
+  (`$HOME` is shell syntax; the preprocessor does not expand it).
+- Replaced with static default colours; XRDB module still reloads from
+  pywal/Xresources at runtime.
+- Fixed `config.mk`: set `SRCDIR = ${CURDIR}`, Arch X11 paths `/usr/include`
+  and `/usr/lib` (was BSD-style `/usr/X11R6/...`).
+- `install.sh` now logs full build output to `/tmp/dotfiles-build-<name>.log`
+  and prints recovery commands on failure.
+- Documented `pipewire-jack` vs `jack2` conflict.
+
+## 2026-10-06 — Move suckless sources to ~/.config
+
+- Moved `dmenu`, `nsxiv`, `slock`, `st-terminal`, `vxwm`, `zlstatus` from
+  `share/.local/share/` → `share/.config/` (stow → `~/.config/...`).
+- Left only `honkai-star-rail-cursors` under `share/.local/share/`.
+- Updated `install.sh` build paths and docs accordingly.

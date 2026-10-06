@@ -319,6 +319,10 @@ for package in "${PACKAGES[@]}"; do
 done
 
 print_success "All dotfiles stowed successfully!"
+
+
+
+
 echo ""
 print_status "Your home directory now has clean symlinks:"
 echo "  ~/.bashrc, ~/.bash_profile  -> bash/"
@@ -326,7 +330,8 @@ echo "  ~/.zshenv                   -> zsh/.zshenv  (ZDOTDIR=~/.config/zsh)"
 echo "  ~/.xinitrc                  -> x11/.xinitrc"
 echo "  ~/.config/{bash,zsh,nvim,tmux,dunst,git,mpd,yazi,shell,x11,...}"
 echo "  ~/.local/bin/               -> bin/"
-echo "  ~/.local/share/             -> share/ + wallpapers/"
+echo "  ~/.config/{vxwm,dmenu,st,...}/ -> share/.config/"
+echo "  ~/.local/share/cursors/      -> share/ (honkai cursors) + wallpapers/"
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -387,27 +392,51 @@ hash -r
 
 # build_make NAME DIR BIN...   (clean build with sudo make clean install)
 build_make() {
-    local name="$1" dir="$2"; shift 2
+    local name="$1" dir="$2" log; shift 2
     [ -d "$dir" ] || return 0
+    log="/tmp/dotfiles-build-${name}.log"
     print_status "Building $name..."
+    # Build as user first (so logs are readable), then install with sudo
     if ( cd "$dir" \
-         && sudo make clean >/dev/null 2>&1 \
-         && sudo make -j"$JOBS" install ); then
-        print_success "$name built and installed with 'sudo make clean install'"
+         && { make clean >/dev/null 2>&1 || true; } \
+         && make -j"$JOBS" 2>&1 | tee "$log" \
+         && sudo make install 2>&1 | tee -a "$log" ); then
+        print_success "$name built and installed"
+        rm -f "$log"
     else
-        print_error "$name build failed (continuing)"
+        print_error "$name build failed (continuing) — full log: $log"
+        tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
         FAILED_BUILDS+=("$name")
     fi
 }
 
-build_make vxwm "$HOME/.local/share/vxwm"        vxwm
-build_make dmenu "$HOME/.local/share/dmenu"       dmenu stest
-build_make st    "$HOME/.local/share/st-terminal" st
-build_make nsxiv "$HOME/.local/share/nsxiv"       nsxiv
+# Ensure pywal colour header exists so a mis-configured config.h cannot break the build.
+WAL_COLORS="$HOME/.cache/wal/colors-wal-dwm.h"
+if [ ! -f "$WAL_COLORS" ]; then
+    mkdir -p "$HOME/.cache/wal"
+    cat > "$WAL_COLORS" << 'WALEOF'
+static char normfgcolor[]     = "#c1c3c1";
+static char normbgcolor[]     = "#091207";
+static char normbordercolor[] = "#091207";
+static char selfgcolor[]      = "#091207";
+static char selbgcolor[]      = "#B7A05A";
+static char selbordercolor[]  = "#B7A05A";
+static char *colors[][3] = {
+    [SchemeNorm] = { normfgcolor,   normbgcolor,   normbordercolor },
+    [SchemeSel]  = { selfgcolor,    selbgcolor,    selbordercolor }
+};
+WALEOF
+    print_warning "Created fallback $WAL_COLORS (run wal -i <img> later to regenerate)"
+fi
 
-if [ -d "$HOME/.local/share/slock" ]; then
+build_make vxwm "$HOME/.config/vxwm"        vxwm
+build_make dmenu "$HOME/.config/dmenu"       dmenu stest
+build_make st    "$HOME/.config/st-terminal" st
+build_make nsxiv "$HOME/.config/nsxiv"       nsxiv
+
+if [ -d "$HOME/.config/slock" ]; then
     print_status "Building slock..."
-    if ( cd "$HOME/.local/share/slock" \
+    if ( cd "$HOME/.config/slock" \
          && sudo make clean >/dev/null 2>&1 \
          && sudo make -j"$JOBS" install ); then
         print_success "slock built and installed with 'sudo make clean install'"
@@ -417,10 +446,10 @@ if [ -d "$HOME/.local/share/slock" ]; then
     fi
 fi
 
-if [ -d "$HOME/.local/share/zlstatus" ]; then
+if [ -d "$HOME/.config/zlstatus" ]; then
     print_status "Building zlstatus..."
     if command -v zig &>/dev/null \
-       && ( cd "$HOME/.local/share/zlstatus" \
+       && ( cd "$HOME/.config/zlstatus" \
             && zig build \
             && sudo install -Dm755 zig-out/bin/zlstatus /usr/local/bin/zlstatus ); then
         print_success "zlstatus built and installed with zig"
@@ -528,10 +557,18 @@ echo ""
 if [ "${#FAILED_PKGS[@]}" -gt 0 ]; then
     print_warning "Packages that failed to install:"
     printf '     - %s\n' "${FAILED_PKGS[@]}"
+    if printf '%s\n' "${FAILED_PKGS[@]}" | grep -qx 'pipewire-jack'; then
+        echo "       (pipewire-jack conflicts with jack2. Fix with:)"
+        echo "         sudo pacman -Rdd jack2 && sudo pacman -S pipewire-jack"
+        echo "       or just ignore it if you do not need JACK compatibility."
+    fi
     echo ""
 fi
 if [ "${#FAILED_BUILDS[@]}" -gt 0 ]; then
     print_warning "Builds that failed: ${FAILED_BUILDS[*]}"
+    echo "     Logs (if present): /tmp/dotfiles-build-<name>.log"
+    echo "     Rebuild a single program after fixing:"
+    echo "       cd ~/.config/vxwm && make clean && make -j\$(nproc) && sudo make install"
     echo ""
 fi
 if [ "${#FAILED_STOW[@]}" -gt 0 ]; then
@@ -563,7 +600,7 @@ else
 fi
 echo "  5. Run 'startx' to start your X session"
 if $IS_VM && [[ "$VM_TYPE" == "kvm" || "$VM_TYPE" == "qemu" ]]; then
-    echo "  6. (QEMU) Add 'spice-vdagent &' to ~/.xinitrc for clipboard sharing"
+    echo "  6. (QEMU) Add `spice-vdagent &` to ~/.xinitrc for clipboard sharing"
 fi
 echo ""
 print_status "Backup saved at: $BACKUP_DIR"
