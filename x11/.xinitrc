@@ -20,7 +20,7 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # file reads + xrdb, should be single-digit ms even on battery.
 cat ~/.Xresources ~/.cache/wal/xrdb_extra 2>/dev/null | xrdb -merge
 
-(command -v zlstatus >/dev/null && zlstatus || "$HOME/.config/zlstatus/zig-out/bin/zlstatus") &
+$HOME/.config/zlstatus/zig-out/bin/zlstatus &
 # Wallpaper: reuse the cached path from the last time wal set one
 # (~/.cache/wal/wal is a plain-text file containing that path) and blit it
 # with xwallpaper instead of feh. xwallpaper is a tiny C binary with no
