@@ -1,2 +1,0 @@
-#!/bin/sh
-feh --no-fehbg --bg-fill "$HOME/.local/share/pictures/active-wallpaper-collection/a_foggy_forest_with_trees.jpg" 
