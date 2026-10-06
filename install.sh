@@ -320,6 +320,26 @@ done
 
 print_success "All dotfiles stowed successfully!"
 
+# ----------------------------------------------------------------------------
+# Remove legacy paths from before sources lived under ~/.config/
+# Old stow targets: ~/.local/share/{vxwm,dmenu,st-terminal,nsxiv,slock,zlstatus}
+# ----------------------------------------------------------------------------
+LEGACY_SHARE_APPS=(vxwm dmenu st-terminal nsxiv slock zlstatus)
+print_status "Cleaning legacy ~/.local/share app trees (now under ~/.config/)..."
+for name in "${LEGACY_SHARE_APPS[@]}"; do
+    old="$HOME/.local/share/$name"
+    new="$HOME/.config/$name"
+    if [ -L "$old" ] || [ -d "$old" ] || [ -f "$old" ]; then
+        # Only remove if the new location exists (stow succeeded) or old is a dangling link
+        if [ -e "$new" ] || [ -L "$old" ]; then
+            print_warning "  Removing legacy $old"
+            rm -rf "$old"
+        fi
+    fi
+done
+# Optional: drop empty leftover dirs under ~/.local/share that only held those apps
+
+
 
 
 
