@@ -22,23 +22,15 @@ cd ~/dotfiles
 All include your actual source modifications, not just upstream code.
 
 ### Stow Packages
-- `bash/` - Bash configuration
-- `shell/` - Common shell environment (XDG paths, no secrets)
-- `zsh/` - Zsh with custom prompt and keybindings
-- `x11/` - X11 configuration and xinitrc
-- `nvim/` - Neovim configuration
-- `tmux/` - Tmux configuration
-- `git/` - Git configuration
-- `dunst/` - Notification daemon
-- `mpd/` - Music Player Daemon
-- `yazi/` - File manager
-- `btop/` - System monitor
-- `scripts/` - Personal utility scripts
+- `config/` - everything under `~/.config` (bash, zsh, x11, shell, nvim, tmux, git, dunst, mpd, yazi, wal, …) plus the vendored sources
+- `bin/` - Personal utility scripts (`~/.local/bin`)
+- `share/` - Cursors (`~/.local/share`)
+- `wallpapers/` - Wallpapers (`~/.local/share/wallpapers`)
+- Home-level files (`~/.xinitrc`, `~/.zshenv`, `~/.bashrc`, …) are symlinked by `install.sh` to their copies in `~/.config`
 
 ### Bootstrap
 - `packages-native.txt` - 148 native packages
 - `packages-aur.txt` - 13 AUR packages
-- `install.sh` - Automated installation script
 
 ## Security
 

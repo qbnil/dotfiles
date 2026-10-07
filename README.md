@@ -25,20 +25,23 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 
 ```
 .
-├── bash/              # ~/.bashrc, ~/.bash_profile
-├── zsh/               # ~/.zshenv
-├── x11/               # ~/.xinitrc
-├── config/            # ~/.config/* (nvim, tmux, shell, dunst, …)
-├── bin/               # ~/.local/bin
-├── share/             # vendored sources → ~/.config/{vxwm,st,…} + cursors
-├── wallpapers/
-├── systemd/           # /etc (not stowed)
-├── bootstrap/
-└── install.sh
+├── config/            # ~/.config/*  (bash, zsh, x11, shell, nvim, tmux, git, yazi, dunst, …
+│                      #   plus vendored sources: vxwm, dmenu, st-terminal, nsxiv, slock, zlstatus)
+├── bin/               # ~/.local/bin   (personal scripts)
+├── share/             # ~/.local/share (cursors)
+├── wallpapers/        # ~/.local/share/wallpapers
+├── systemd/           # /etc (not stowed, copied by install.sh)
+├── bootstrap/         # package lists
+├── install.sh
+└── test-stow.sh       # dry-run of the stow plan
 ```
 
+Home-level files (`~/.xinitrc`, `~/.zshenv`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_logout`) are plain
+symlinks created by `install.sh` that point at their stowed copies in `~/.config`, e.g.
+`~/.xinitrc` → `~/.config/x11/xinitrc` → `dotfiles/config/.config/x11/xinitrc`.
 
-Each directory is a **Stow package**. There is no monolithic `config/` package — that caused path conflicts.
+
+`config`, `bin`, `share` and `wallpapers` are the **Stow packages** (each mirrors paths under `$HOME`). See `STOW_STRUCTURE.md`.
 
 
 ## Installation on Fresh Arch System
@@ -137,7 +140,14 @@ mkdir -p ~/.config ~/.local/{bin,share,state} ~/.cache
 
 # Deploy dotfiles with stow
 cd ~/dotfiles
-stow bash shell zsh x11 nvim tmux git dunst mpd yazi btop scripts
+stow config bin share wallpapers
+
+# Home-level links (stow can't rename files)
+ln -sfn ~/.config/x11/xinitrc      ~/.xinitrc
+ln -sfn ~/.config/zsh/zshenv       ~/.zshenv
+ln -sfn ~/.config/bash/bashrc      ~/.bashrc
+ln -sfn ~/.config/bash/bash_profile ~/.bash_profile
+ln -sfn ~/.config/bash/bash_logout ~/.bash_logout
 
 # Build custom programs
 cd ~/.config/vxwm && make && install -Dm755 vxwm ~/.local/bin/vxwm
@@ -146,11 +156,8 @@ cd ~/.config/st-terminal && make && install -Dm755 st ~/.local/bin/st
 cd ~/.config/slock && make && sudo install -Dm4755 slock /usr/local/bin/slock
 cd ~/.config/zlstatus && zig build && install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 
-# Set up ZDOTDIR
-echo 'export ZDOTDIR="$HOME/.config/zsh"' > ~/.zshenv
-
 # Create secrets file
-cp ~/dotfiles/shell/.config/shell/secrets.sh.example ~/.config/shell/secrets.sh
+cp ~/dotfiles/config/.config/shell/secrets.sh.example ~/.config/shell/secrets.sh
 chmod 600 ~/.config/shell/secrets.sh
 $EDITOR ~/.config/shell/secrets.sh
 ```
@@ -161,28 +168,28 @@ $EDITOR ~/.config/shell/secrets.sh
 
 ```bash
 cd ~/dotfiles
-stow packagename
+stow config   # or bin / share / wallpapers
 ```
 
 ### Remove a package
 
 ```bash
 cd ~/dotfiles
-stow -D packagename
+stow -D config
 ```
 
 ### Restow (update) a package
 
 ```bash
 cd ~/dotfiles
-stow -R packagename
+stow -R config
 ```
 
 ### Preview changes (dry run)
 
 ```bash
 cd ~/dotfiles
-stow --simulate --verbose packagename
+stow --simulate --verbose config
 ```
 
 ## Key Components
@@ -206,7 +213,7 @@ Key features:
 
 ### Programs
 
-All suckless-style programs are vendored in `share/.config/` (stow → `~/.config/`)  with their source code and configurations. Build artifacts are ignored by git and regenerated on each machine.
+All suckless-style programs are vendored in `config/.config/` (stow → `~/.config/`)  with their source code and configurations. Build artifacts are ignored by git and regenerated on each machine.
 
 ## Secrets Management
 
@@ -247,7 +254,7 @@ git commit -m "Update package lists"
 ```bash
 cd ~/dotfiles
 git pull
-stow -R bash shell zsh x11 nvim tmux git dunst mpd yazi btop scripts
+stow -R config bin share wallpapers
 ```
 
 ### Rebuild custom programs
@@ -363,7 +370,7 @@ mv ~/.config/zsh ~/.config/zsh.bak
 
 # Option 2: Adopt existing files into repo
 cd ~/dotfiles
-stow --adopt zsh
+stow --adopt config
 git diff  # Review what was adopted
 ```
 

@@ -18,13 +18,10 @@ print_success "GNU Stow is installed"
 echo ""
 
 PACKAGES=(
-    bash
-    bin
     config
+    bin
     share
     wallpapers
-    x11
-    zsh
 )
 
 print_status "Packages present in repo:"
@@ -52,27 +49,14 @@ for pkg in "${PACKAGES[@]}"; do
     echo ""
 done
 
-print_status "Expected home layout after a real stow:"
+print_status "Expected home layout after install.sh:"
 cat << 'TREE'
-  ~/.bashrc, ~/.bash_profile     → bash/
-  ~/.zshenv                      → zsh/.zshenv   (sets ZDOTDIR)
-  ~/.xinitrc                     → x11/.xinitrc
-  ~/.xinitrc                     → x11/.xinitrc
-  ~/.config/bash/                → bash/.config/bash/
-  ~/.config/zsh/                 → zsh/.config/zsh/
-  ~/.config/nvim/                → nvim/.config/nvim/
-  ~/.config/tmux/                → tmux/.config/tmux/
-  ~/.config/dunst/               → dunst/
-  ~/.config/git/                 → git/
-  ~/.config/mpd/                 → mpd/
-  ~/.config/yazi/                → yazi/
-  ~/.config/shell/               → shell/
-  ~/.config/x11/                 → x11/.config/x11/
-  ~/.config/feh,flameshot,gtk-3.0,nvidia,wal/ …
-  ~/.local/bin/                  → bin/
-  ~/.config/{vxwm,st,…}/         → share/.config/
-  ~/.local/share/cursors/        → share/.local/share/
-  ~/.local/share/wallpapers/     → wallpapers/
+  ~/.config/*                    -> config/.config/*   (stow)
+  ~/.local/bin/                  -> bin/.local/bin/    (stow)
+  ~/.local/share/*               -> share/, wallpapers/ (stow)
+  ~/.xinitrc                     -> ~/.config/x11/xinitrc      (link_home)
+  ~/.zshenv                      -> ~/.config/zsh/zshenv       (link_home)
+  ~/.bashrc, .bash_profile, .bash_logout -> ~/.config/bash/*   (link_home)
 TREE
 echo ""
 print_success "Dry-run complete. Run ./install.sh on a fresh Arch system to apply."

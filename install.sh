@@ -257,13 +257,10 @@ print_success "Backup created"
 # Note: the 'systemd' package is intentionally NOT stowed into $HOME
 # It contains /etc files which will be installed separately to system directories
 PACKAGES=(
-    bash
-    bin
     config
+    bin
     share
     wallpapers
-    x11
-    zsh
 )
 
 # Stow refuses to touch files that already exist (e.g. the default ~/.bashrc on a
@@ -310,6 +307,34 @@ done
 print_success "All dotfiles stowed successfully!"
 
 # ----------------------------------------------------------------------------
+# Home-level dotfiles that must live directly in $HOME but are stored under
+# config/.config/ (stow cannot rename files, so these are plain symlinks that
+# point at the already-stowed copies in ~/.config).
+#   link_home  <path under ~/.config>  <name in $HOME>
+# ----------------------------------------------------------------------------
+link_home() {
+    local src="$HOME/.config/$1" dst="$HOME/$2"
+    if [ ! -e "$src" ]; then
+        print_warning "  $src missing in repo, skipping ~/$2"
+        return 0
+    fi
+    if [ -e "$dst" ] && [ ! -L "$dst" ]; then
+        print_warning "  ~/$2 exists, moving to backup"
+        mkdir -p "$BACKUP_DIR/conflicts"
+        mv "$dst" "$BACKUP_DIR/conflicts/$2"
+    fi
+    ln -sfn "$src" "$dst"
+    print_success "  ~/$2 -> $src"
+}
+
+print_status "Linking home-level dotfiles..."
+link_home x11/xinitrc      .xinitrc
+link_home zsh/zshenv       .zshenv
+link_home bash/bashrc      .bashrc
+link_home bash/bash_profile .bash_profile
+link_home bash/bash_logout .bash_logout
+
+# ----------------------------------------------------------------------------
 # Remove legacy paths from before sources lived under ~/.config/
 # Old stow targets: ~/.local/share/{vxwm,dmenu,st-terminal,nsxiv,slock,zlstatus}
 # ----------------------------------------------------------------------------
@@ -334,13 +359,11 @@ done
 
 echo ""
 print_status "Your home directory now has clean symlinks:"
-echo "  ~/.bashrc, ~/.bash_profile  -> bash/"
-echo "  ~/.zshenv                   -> zsh/.zshenv  (ZDOTDIR=~/.config/zsh)"
-echo "  ~/.xinitrc                  -> x11/.xinitrc"
-echo "  ~/.config/*                 -> config/"
-echo "  ~/.local/bin/               -> bin/"
-echo "  ~/.config/{vxwm,dmenu,st,...}/ -> share/.config/"
-echo "  ~/.local/share/cursors/      -> share/ (honkai cursors) + wallpapers/"
+echo "  ~/.xinitrc, ~/.zshenv, ~/.bashrc, ~/.bash_profile, ~/.bash_logout"
+echo "                              -> ~/.config/{x11,zsh,bash}/ (-> config/.config/...)"
+echo "  ~/.config/*                 -> config/.config/*"
+echo "  ~/.local/bin/               -> bin/.local/bin/"
+echo "  ~/.local/share/*            -> share/ + wallpapers/"
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -500,7 +523,7 @@ if [ -d "$DOTFILES_DIR/systemd/etc" ]; then
 fi
 
 # ----------------------------------------------------------------------------
-# ZDOTDIR for zsh (stow already links ~/.zshenv from the zsh package)
+# ZDOTDIR for zsh (~/.zshenv is linked by link_home above)
 # ----------------------------------------------------------------------------
 if [ -L "$HOME/.zshenv" ] || grep -q "ZDOTDIR" "$HOME/.zshenv" 2>/dev/null; then
     print_success "ZDOTDIR already configured via stow (~/.zshenv)"
