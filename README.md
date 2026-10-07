@@ -25,22 +25,18 @@ XDG-first Arch Linux configuration for vxwm desktop environment, managed with GN
 
 ```
 .
-├── bash/              # ~/.bashrc, ~/.bash_profile, ~/.config/bash/
-├── zsh/               # ~/.zshenv, ~/.config/zsh/ (ZDOTDIR)
-├── shell/             # Shared XDG env + secrets example
-├── x11/               # ~/.xinitrc, ~/.config/x11/
-├── nvim/              # Neovim
-├── tmux/              # Tmux (+ plugins tree)
-├── dunst/ git/ mpd/ yazi/
-├── feh/ flameshot/ gtk/ nvidia/ wal/   # small app configs
-├── bin/               # ~/.local/bin scripts
-├── share/             # Vendored sources: vxwm, st, dmenu, slock, nsxiv, zlstatus, cursors
-├── wallpapers/        # ~/.local/share/wallpapers/
-├── systemd/           # /etc files (not stowed; installed by install.sh)
-├── bootstrap/         # packages-native.txt, packages-aur.txt
-├── install.sh         # Full machine bootstrap
-└── test-stow.sh       # Dry-run stow only
+├── bash/              # ~/.bashrc, ~/.bash_profile
+├── zsh/               # ~/.zshenv
+├── x11/               # ~/.xinitrc
+├── config/            # ~/.config/* (nvim, tmux, shell, dunst, …)
+├── bin/               # ~/.local/bin
+├── share/             # vendored sources → ~/.config/{vxwm,st,…} + cursors
+├── wallpapers/
+├── systemd/           # /etc (not stowed)
+├── bootstrap/
+└── install.sh
 ```
+
 
 Each directory is a **Stow package**. There is no monolithic `config/` package — that caused path conflicts.
 
@@ -210,7 +206,7 @@ Key features:
 
 ### Programs
 
-All suckless-style programs are vendored in `share/.local/share/` with their source code and configurations. Build artifacts are ignored by git and regenerated on each machine.
+All suckless-style programs are vendored in `share/.config/` (stow → `~/.config/`)  with their source code and configurations. Build artifacts are ignored by git and regenerated on each machine.
 
 ## Secrets Management
 

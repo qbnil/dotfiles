@@ -150,3 +150,10 @@ Run `./install.sh` to:
   `share/.local/share/` → `share/.config/` (stow → `~/.config/...`).
 - Left only `honkai-star-rail-cursors` under `share/.local/share/`.
 - Updated `install.sh` build paths and docs accordingly.
+
+## 2026-10-07 — config package + zlstatus build flags
+
+- Merged per-app stow packages into single `config/` package (`~/.config/...`).
+- Left `bash/`, `zsh/`, `x11/` only for home-level entry points.
+- `share/` still holds vendored sources under `share/.config/`.
+- zlstatus: `zig build -Dmode=X11 -Doptimize=ReleaseSmall --summary all`

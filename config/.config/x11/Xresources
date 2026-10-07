@@ -1,0 +1,22 @@
+! ~/.config/x11/Xresources
+! Static X settings (fonts, dpi, hints). Colour values are applied at runtime by
+! pywal → ~/.cache/wal/colors.Xresources and merged in xinitrc / pywal16.
+! Do not put a full wal palette here — it would fight pywal on every wallpaper change.
+
+! --- Xft ---
+Xft.dpi:       96
+Xft.antialias: true
+Xft.hinting:   true
+Xft.rgba:      rgb
+Xft.hintstyle: hintslight
+Xft.lcdfilter: lcddefault
+
+! --- Cursor (optional; override with xsetroot / xrdb from themes) ---
+! Xcursor.theme: Adwaita
+! Xcursor.size:  24
+
+! --- st / xterm-style fallbacks (st also has its own config) ---
+! *.font: JetBrainsMono Nerd Font:size=12
+
+! --- dwm/vxwm names (filled by pywal16 → xrdb_extra; listed for reference) ---
+! dwm.color0 / dwm.color6 are set by ~/.cache/wal/xrdb_extra after `wal`

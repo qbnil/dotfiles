@@ -18,8 +18,13 @@ print_success "GNU Stow is installed"
 echo ""
 
 PACKAGES=(
-    bash bin dunst feh flameshot git gtk mpd nvidia nvim
-    share shell tmux wal wallpapers x11 yazi zsh
+    bash
+    bin
+    config
+    share
+    wallpapers
+    x11
+    zsh
 )
 
 print_status "Packages present in repo:"

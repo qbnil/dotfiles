@@ -259,21 +259,10 @@ print_success "Backup created"
 PACKAGES=(
     bash
     bin
-    dunst
-    feh
-    flameshot
-    git
-    gtk
-    mpd
-    nvidia
-    nvim
+    config
     share
-    shell
-    tmux
-    wal
     wallpapers
     x11
-    yazi
     zsh
 )
 
@@ -348,7 +337,7 @@ print_status "Your home directory now has clean symlinks:"
 echo "  ~/.bashrc, ~/.bash_profile  -> bash/"
 echo "  ~/.zshenv                   -> zsh/.zshenv  (ZDOTDIR=~/.config/zsh)"
 echo "  ~/.xinitrc                  -> x11/.xinitrc"
-echo "  ~/.config/{bash,zsh,nvim,tmux,dunst,git,mpd,yazi,shell,x11,...}"
+echo "  ~/.config/*                 -> config/"
 echo "  ~/.local/bin/               -> bin/"
 echo "  ~/.config/{vxwm,dmenu,st,...}/ -> share/.config/"
 echo "  ~/.local/share/cursors/      -> share/ (honkai cursors) + wallpapers/"
@@ -470,7 +459,7 @@ if [ -d "$HOME/.config/zlstatus" ]; then
     print_status "Building zlstatus..."
     if command -v zig &>/dev/null \
        && ( cd "$HOME/.config/zlstatus" \
-            && zig build \
+            && zig build -Dmode=X11 -Doptimize=ReleaseSmall --summary all \
             && sudo install -Dm755 zig-out/bin/zlstatus /usr/local/bin/zlstatus ); then
         print_success "zlstatus built and installed with zig"
     else
