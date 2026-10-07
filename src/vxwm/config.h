@@ -26,10 +26,21 @@ static const char *cliphistsel[] = { "cliphist", "sel", NULL };
 static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passmanager", NULL };
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
-/* Compile-time colour defaults. At runtime the XRDB module (and your
- * xinitrc + pywal) overwrite these from ~/.config/x11/Xresources / wal cache.
- * Do NOT #include a shell path here — the C preprocessor cannot expand $HOME.
+/* Colours. If pywal has generated ~/.cache/wal/colors-wal-dwm.h (from the
+ * template in ~/.config/wal/templates/), use it. config.mk adds
+ * -I$(HOME)/.cache/wal so the header is found without hardcoding a path
+ * ($HOME is not expanded by the C preprocessor). Otherwise fall back to the
+ * hardcoded colours below. At runtime the XRDB module (dwm.* keys from
+ * xrdb_extra) still overrides whichever set was compiled in.
  */
+#if defined(__has_include)
+#  if __has_include(<colors-wal-dwm.h>)
+#    include <colors-wal-dwm.h>
+#    define VXWM_WAL_COLORS 1
+#  endif
+#endif
+
+#ifndef VXWM_WAL_COLORS
 static MAYBE_CONST char normbgcolor[]           = "#091207";
 static MAYBE_CONST char normbordercolor[]       = "#091207";
 static MAYBE_CONST char normfgcolor[]           = "#c1c3c1";
@@ -41,6 +52,7 @@ static MAYBE_CONST char *colors[][3] = {
        [SchemeNorm] = { normfgcolor, normbgcolor, normbordercolor },
        [SchemeSel]  = { selfgcolor,  selbgcolor,  selbordercolor  },
 };
+#endif
 
 #define CENTER_NEW_FLOATING_WINDOWS 0 // so, basically, it does what it says. (make 0 to turn off)
 #define NEW_FLOATING_WINDOWS_APPEAR_UNDER_CURSOR 0 // so, basically, it does what it says. (make 0 to turn off) 
@@ -321,4 +333,3 @@ static const Button buttons[] = {
 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
 };
-

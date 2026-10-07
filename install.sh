@@ -280,6 +280,10 @@ stow_pkg() {
     stow -d "$DOTFILES_DIR" -t "$HOME" -R "$pkg"
 }
 
+# Scripts in local/.local/bin must be executable (stow symlinks to these files,
+# and zip/copy transfers can drop the mode bits).
+chmod +x "$DOTFILES_DIR"/local/.local/bin/* 2>/dev/null || true
+
 print_status "Deploying XDG files with GNU Stow..."
 cd "$DOTFILES_DIR"
 for package in "${PACKAGES[@]}"; do
