@@ -1,0 +1,35 @@
+# Runtime / machine-local
+**/.cache/
+**/__pycache__/
+*.pyc
+*.o
+*.a
+*.so
+*.swp
+*~
+.DS_Store
+
+# Build artifacts from vendored sources
+**/zig-out/
+**/zig-cache/
+**/config.h.bak
+src/*/config.h.bak
+
+# Secrets
+**/secrets.sh
+**/*secret*
+**/*.pem
+**/*.key
+
+# MPD runtime state
+**/mpd/database
+**/mpd/state
+**/mpd/pid
+**/mpd/log
+**/mpd/sticker.sql
+
+# Editor / plugin lock noise
+# Keep nvim/lazy-lock.json for reproducible plugin versions.
+
+# Stow residuals
+.stow-local-ignore

@@ -40,8 +40,9 @@ cat <<'TREE'
   ~/.bash_profile                    -> ~/.config/bash/bash_profile
   ~/.zshenv                          -> ~/.config/zsh/zshenv
   ~/.xinitrc                         -> ~/.config/x11/xinitrc
+  ~/.config/user-dirs.dirs           -> lowercase XDG user dirs definition
   ~/desktop ~/documents ~/downloads ~/music ~/pictures
-  ~/public ~/templates ~/videos      (real lowercase XDG user dirs)
+  ~/public ~/templates ~/videos      (real lowercase directories)
 
   src/                               build sources only; never stowed
 TREE

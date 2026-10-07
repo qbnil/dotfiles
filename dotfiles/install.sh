@@ -321,19 +321,33 @@ if [ -e "$HOME/.Xresources" ] || [ -L "$HOME/.Xresources" ]; then
     mv "$HOME/.Xresources" "$BACKUP_DIR/conflicts/.Xresources"
 fi
 
-# Lowercase personal directories are owned by xdg-env.sh, not xdg-user-dirs.
+# Lowercase user directories are defined once, in ~/.config/user-dirs.dirs
+# (stowed from config/). xdg-env.sh exports them as XDG_*_DIR.
 print_status "Creating lowercase user directories..."
-source "$HOME/.config/shell/xdg-env.sh"
-mkdir -p \
-    "$DESKTOP_DIR" \
-    "$DOCUMENTS_DIR" \
-    "$DOWNLOADS_DIR" \
-    "$MUSIC_DIR" \
-    "$PICTURES_DIR/screenshots" \
-    "$PICTURES_DIR/wallpapers" \
-    "$PUBLIC_DIR" \
-    "$TEMPLATES_DIR" \
-    "$VIDEOS_DIR"
+# shellcheck source=/dev/null
+. "$HOME/.config/shell/xdg-env.sh"
+
+# Move leftovers from the capitalised defaults (~/Downloads -> ~/downloads, ...)
+# without overwriting anything: files that already exist at the target stay put.
+migrate_dir() {
+    local target="$1" legacy
+    legacy="$(dirname "$target")/$(basename "$target" | sed 's/^./\U&/')"
+    [ "$legacy" != "$target" ] && [ -d "$legacy" ] && [ ! -L "$legacy" ] || return 0
+    mkdir -p "$target"
+    find "$legacy" -mindepth 1 -maxdepth 1 -exec mv -n -t "$target" {} + 2>/dev/null || true
+    if rmdir "$legacy" 2>/dev/null; then
+        print_success "migrated $legacy -> $target"
+    else
+        print_warning "$legacy not empty after migration; left in place - review it manually"
+    fi
+}
+
+for dir in "$XDG_DESKTOP_DIR" "$XDG_DOCUMENTS_DIR" "$XDG_DOWNLOAD_DIR" "$XDG_MUSIC_DIR" \
+           "$XDG_PICTURES_DIR" "$XDG_PUBLICSHARE_DIR" "$XDG_TEMPLATES_DIR" "$XDG_VIDEOS_DIR"; do
+    migrate_dir "$dir"
+    mkdir -p "$dir"
+done
+mkdir -p "$XDG_PICTURES_DIR"/{screenshots,wallpapers}
 mkdir -p "$HOME/.local/state/mpd" "$HOME/.cache/mpd"
 print_success "desktop documents downloads music pictures public templates videos"
 
@@ -568,7 +582,7 @@ echo "  1. Configure personal information:"
 echo "     - Edit ~/.config/git/config and replace YOUR_EMAIL@example.com"
 echo "     - Replace YOUR_NAME with your actual name"
 echo "  2. Edit ~/.config/shell/secrets.sh and add your API keys"
-echo "  3. Review ~/.config/shell/xdg-env.sh for environment variables"
+echo "  3. Review ~/.config/shell/xdg-env.sh (environment) and ~/.config/user-dirs.dirs (XDG user directories)"
 if [ ! -d "/usr/lib/modules/$(uname -r)" ]; then
     echo "  4. REBOOT now (kernel was upgraded)"
 else

@@ -84,9 +84,7 @@ echo -e "${NEWLINE}\x1b[38;5;137m\x1b[48;5;0mit's $(print -P '%D{%_I:%M%P}\n') \
 # requires zsh-autosuggestions
 # source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 
-typeset -U path PATH
-path=(~/.local/bin $path)
-export PATH
+typeset -U path PATH # keep PATH entries unique (~/.local/bin comes from xdg-env.sh)
 
 # syntax highlighting
 # requires zsh-syntax-highlighting package

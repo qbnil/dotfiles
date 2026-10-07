@@ -43,9 +43,9 @@ After installation:
 ~/videos
 ```
 
-The home directories are real lowercase directories created by `install.sh`. Their canonical paths are defined in `~/.config/shell/xdg-env.sh`; they are not Stow links, so personal files placed there do not become part of the dotfiles repository.
+The home directories are real lowercase directories created by `install.sh`. Their canonical paths are defined once, in `~/.config/user-dirs.dirs`, and they are not Stow links, so personal files placed there do not become part of the dotfiles repository.
 
-This repository deliberately does **not** use `xdg-user-dirs` or `~/.config/user-dirs.dirs`: that would introduce a second source of truth for the same directories.
+`user-dirs.dirs` is the file browsers, GTK/Qt file dialogs and `xdg-user-dir` actually read, which is what makes downloads land in `~/downloads`. `shell/xdg-env.sh` sources it and exports the `XDG_*_DIR` variables, so the shell never keeps a second copy. `user-dirs.conf` sets `enabled=False` so `xdg-user-dirs-update` cannot recreate `~/Downloads` and friends.
 
 The four dotfiles in `$HOME` are compatibility entrypoints required by Bash, Zsh and `startx`; their actual contents live in `~/.config`.
 
@@ -130,13 +130,14 @@ install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 - `ZDOTDIR`
 - editor/browser/terminal defaults
 - application-specific XDG locations
-- the user-local executable path
+- the XDG user directories (from `user-dirs.dirs`)
+- `PATH`: `~/.local/bin` and `$CARGO_HOME/bin`, added once and never duplicated
 
 Secrets belong in `~/.config/shell/secrets.sh`; this file is ignored by git.
 
 ## XDG user directories
 
-`~/.config/shell/xdg-env.sh` deliberately defines the user directories in lowercase. The standard set is:
+`~/.config/user-dirs.dirs` deliberately defines the user directories in lowercase. The standard set is:
 
 ```text
 ~/desktop
@@ -148,6 +149,8 @@ Secrets belong in `~/.config/shell/secrets.sh`; this file is ignored by git.
 ~/templates
 ~/videos
 ```
+
+`install.sh` also moves anything left in the capitalised defaults (`~/Downloads`, `~/Pictures`, ...) into the lowercase directories without overwriting existing files.
 
 Wallpapers and screenshots are kept under `~/pictures/` rather than creating additional mixed-case directories or putting personal media into the dotfiles repository.
 

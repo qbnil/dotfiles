@@ -1,8 +1,7 @@
 #!/bin/sh
 
 export XDG_SESSION_TYPE=x11
-. "$HOME/.config/shell/xdg-env.sh"
-export PATH="$HOME/.local/bin:$PATH"
+. "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh"
 
 # Input setup - fast, but backgrounded anyway so it can't add up
 xinput --set-prop "Elan Touchpad" "libinput Natural Scrolling Enabled" 1 &
@@ -12,7 +11,7 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # xrandr --output HDMI-0 --primary --mode 1920x1080 --pos 0x0 \
 #       --output DP-0 --mode 1920x1080 --pos -1920x0
 # xrandr --output HDMI-0 --mode 1920x1080 --rate 240 --primary
-# hsetroot -cover "/home/kent/pictures/Wall-E-Desk/landscape-anime/wallhaven-w5ejkr.jpg"
+# hsetroot -cover "$XDG_PICTURES_DIR/wallpapers/example.jpg"
 
 # Kept synchronous: if vxwm or its bar read colors/fonts from Xresources at
 # startup, this needs to land before `exec vxwm`. No Python involved - just

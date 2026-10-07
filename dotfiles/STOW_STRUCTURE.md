@@ -11,6 +11,8 @@ GNU Stow only deploys the two packages below.
 │       ├── zsh/
 │       ├── x11/
 │       ├── shell/
+│       ├── user-dirs.dirs
+│       ├── user-dirs.conf
 │       ├── nvim/
 │       ├── tmux/
 │       ├── git/
@@ -61,7 +63,7 @@ There is intentionally **no `~/.Xresources`**. The tracked Xresources file is `~
 
 ## Lowercase XDG directories
 
-`config/.config/shell/xdg-env.sh` is the single source of truth for the lowercase user directories:
+`config/.config/user-dirs.dirs` is the single source of truth for the lowercase user directories:
 
 - `~/desktop`
 - `~/documents`
@@ -72,7 +74,7 @@ There is intentionally **no `~/.Xresources`**. The tracked Xresources file is `~
 - `~/templates`
 - `~/videos`
 
-`install.sh` sources that file and creates the directories. The repository does not use `xdg-user-dirs` or `user-dirs.dirs`.
+`shell/xdg-env.sh` sources that file and exports `XDG_DOWNLOAD_DIR` and friends; `install.sh` creates the directories. `user-dirs.conf` (`enabled=False`) stops `xdg-user-dirs-update` from regenerating the capitalised defaults.
 
 ## Stow commands
 

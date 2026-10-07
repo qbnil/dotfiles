@@ -192,15 +192,23 @@ dirs = [
 	{ name = ".github", text = "", fg = "#8caaee" },
 	{ name = ".npm", text = "", fg = "#8caaee" },
 	{ name = "Desktop", text = "", fg = "#81c8be" },
+	{ name = "desktop", text = "", fg = "#81c8be" },
 	{ name = "Development", text = "", fg = "#81c8be" },
 	{ name = "Documents", text = "", fg = "#81c8be" },
+	{ name = "documents", text = "", fg = "#81c8be" },
 	{ name = "Downloads", text = "", fg = "#81c8be" },
+	{ name = "downloads", text = "", fg = "#81c8be" },
 	{ name = "Library", text = "", fg = "#81c8be" },
 	{ name = "Movies", text = "", fg = "#81c8be" },
 	{ name = "Music", text = "", fg = "#81c8be" },
+	{ name = "music", text = "", fg = "#81c8be" },
 	{ name = "Pictures", text = "", fg = "#81c8be" },
+	{ name = "pictures", text = "", fg = "#81c8be" },
 	{ name = "Public", text = "", fg = "#81c8be" },
+	{ name = "public", text = "", fg = "#81c8be" },
+	{ name = "templates", text = "", fg = "#81c8be" },
 	{ name = "Videos", text = "", fg = "#81c8be" },
+	{ name = "videos", text = "", fg = "#81c8be" },
 ]
 conds = [
 	# Special files

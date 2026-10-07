@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-- Removed `xdg-user-dirs` and `~/.config/user-dirs.dirs`; lowercase home directories are now defined only by `~/.config/shell/xdg-env.sh`.
-- `install.sh` creates those directories from the exported path variables instead of invoking `xdg-user-dirs-update`.
+- Added `~/.config/user-dirs.dirs` with lowercase paths (`XDG_DOWNLOAD_DIR=$HOME/downloads`, ...). Apps only honour these standard variables, so browser downloads and file dialogs now use `~/downloads`.
+- Added `~/.config/user-dirs.conf` (`enabled=False`) so `xdg-user-dirs-update` never recreates `~/Downloads`.
+- `shell/xdg-env.sh` now sources `user-dirs.dirs` and exports the `XDG_*_DIR` variables, replacing the unused `DOWNLOADS_DIR`-style ones.
+- `~/.local/bin` (and `$CARGO_HOME/bin`) are added to `PATH` once, in `xdg-env.sh`, with de-duplication; redundant PATH edits were removed from `xinitrc` and `.zshrc`.
+- `install.sh` creates the directories from `XDG_*_DIR` and migrates existing `~/Downloads`, `~/Pictures`, ... into the lowercase ones without overwriting files.
+- yazi: added lowercase folder icons.
 
 ## 2026-10-07 — XDG/Stow cleanup
 

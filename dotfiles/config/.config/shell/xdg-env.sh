@@ -1,18 +1,16 @@
 # XDG Base Directory Specification
-export XDG_CONFIG_HOME="$HOME/.config"
-export XDG_DATA_HOME="$HOME/.local/share"
-export XDG_CACHE_HOME="$HOME/.cache"
-export XDG_STATE_HOME="$HOME/.local/state"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 
-# Personal user directories (kept lowercase by design).
-export DESKTOP_DIR="$HOME/desktop"
-export DOCUMENTS_DIR="$HOME/documents"
-export DOWNLOADS_DIR="$HOME/downloads"
-export MUSIC_DIR="$HOME/music"
-export PICTURES_DIR="$HOME/pictures"
-export PUBLIC_DIR="$HOME/public"
-export TEMPLATES_DIR="$HOME/templates"
-export VIDEOS_DIR="$HOME/videos"
+# XDG user directories (lowercase). Defined once in user-dirs.dirs so that
+# the shell and every XDG-aware program agree on the same paths.
+if [ -r "$XDG_CONFIG_HOME/user-dirs.dirs" ]; then
+  . "$XDG_CONFIG_HOME/user-dirs.dirs"
+  export XDG_DESKTOP_DIR XDG_DOCUMENTS_DIR XDG_DOWNLOAD_DIR XDG_MUSIC_DIR \
+         XDG_PICTURES_DIR XDG_PUBLICSHARE_DIR XDG_TEMPLATES_DIR XDG_VIDEOS_DIR
+fi
 
 # Application-specific XDG overrides
 export CARGO_HOME="$XDG_DATA_HOME/cargo"
@@ -39,7 +37,7 @@ export XINITRC="$XDG_CONFIG_HOME/x11/xinitrc"
 export XPROFILE="$XDG_CONFIG_HOME/x11/xprofile"
 export XRESOURCES="$XDG_CONFIG_HOME/x11/Xresources"
 export FFMPEG_DATADIR="$XDG_CONFIG_HOME/ffmpeg"
-export MOZ_PROFILE_DIR="$HOME/.config/waterfox"
+export MOZ_PROFILE_DIR="$XDG_CONFIG_HOME/waterfox"
 
 # Default programs
 export SYSTEMD_EDITOR="nvim"
@@ -50,12 +48,6 @@ export TERMINAL="st"
 export MUSPLAYER="rmpc"
 export BROWSER="waterfox"
 export XCURSOR_THEME="phainon"
-
-# Paths
-export PATH="$HOME/.local/share/cargo/bin:$PATH"
-
-# Zsh
-export ZDOTDIR="$XDG_CONFIG_HOME/zsh"
 
 # FZF
 export FZF_DEFAULT_OPTS="--style minimal --color 16 --layout=reverse --height 30% --preview='bat -p --color=always {}'"
@@ -75,11 +67,15 @@ export LESS_TERMCAP_us="$(printf '%b' '\[\033[1;32m\]')"
 export LESS_TERMCAP_ue="$(printf '%b' '\[\033[0m\]')"
 
 # Source secrets file if it exists (API keys, tokens, etc.)
-[ -f "$XDG_CONFIG_HOME/shell/secrets.sh" ] && source "$XDG_CONFIG_HOME/shell/secrets.sh"
+[ -f "$XDG_CONFIG_HOME/shell/secrets.sh" ] && . "$XDG_CONFIG_HOME/shell/secrets.sh"
 
-# Prefer user-local binaries
-case ":$PATH:" in
-  *":$HOME/.local/bin:"*) ;;
-  *) export PATH="$HOME/.local/bin:$PATH" ;;
-esac
+# PATH: user-local binaries first, without duplicating entries on re-source.
+for dir in "$CARGO_HOME/bin" "$HOME/.local/bin"; do
+  case ":$PATH:" in
+    *":$dir:"*) ;;
+    *) PATH="$dir:$PATH" ;;
+  esac
+done
+unset dir
+export PATH
 
