@@ -179,7 +179,7 @@ FONT_PKGS=(ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji ttf-font-awesom
 
 APP_PKGS=(zsh neovim tmux dunst libnotify mpd mpc yazi thunar
           pipewire pipewire-pulse wireplumber networkmanager
-          zram-generator xdg-utils xdg-user-dirs ripgrep fd fzf)
+          zram-generator xdg-utils ripgrep fd fzf)
 
 pacman_install "${BUILD_DEPS[@]}" "${X_PKGS[@]}" "${FONT_PKGS[@]}" "${APP_PKGS[@]}"
 
@@ -246,7 +246,7 @@ mkdir -p "$BACKUP_DIR"
 [ -d "$HOME/.config" ]      && cp -a "$HOME/.config"      "$BACKUP_DIR/" 2>/dev/null || true
 [ -d "$HOME/.local/bin" ]   && cp -a "$HOME/.local/bin"   "$BACKUP_DIR/" 2>/dev/null || true
 [ -d "$HOME/.local/share" ] && cp -a "$HOME/.local/share" "$BACKUP_DIR/" 2>/dev/null || true
-for f in .bashrc .bash_profile .bash_logout .profile .zshenv .zshrc .xinitrc .Xresources; do
+for f in .bashrc .bash_profile .profile .zshenv .zshrc .xinitrc .Xresources; do
     [ -f "$HOME/$f" ] && cp -a "$HOME/$f" "$BACKUP_DIR/" 2>/dev/null || true
 done
 print_success "Backup created"
@@ -254,23 +254,14 @@ print_success "Backup created"
 # ----------------------------------------------------------------------------
 # Stow
 # ----------------------------------------------------------------------------
-# Note: the 'systemd' package is intentionally NOT stowed into $HOME
-# It contains /etc files which will be installed separately to system directories
-PACKAGES=(
-    config
-    bin
-    share
-    wallpapers
-)
+# `config` owns ~/.config only. `local` owns ~/.local/{bin,share}.
+# Buildable sources live in ./src and are never stowed into $HOME.
+PACKAGES=(config local)
 
-# Stow refuses to touch files that already exist (e.g. the default ~/.bashrc on a
-# fresh install). Move those aside into the backup, then stow.
 stow_pkg() {
-    local pkg="$1" sim conflicts f attempt
-    for attempt in 1 2 3; do
-        if sim="$(stow -d "$DOTFILES_DIR" -t "$HOME" -R -n "$pkg" 2>&1)"; then
-            break
-        fi
+    local pkg="$1" sim conflicts f
+    sim="$(stow -d "$DOTFILES_DIR" -t "$HOME" -R -n "$pkg" 2>&1 || true)"
+    if [ -n "$sim" ] && printf '%s\n' "$sim" | grep -qiE 'existing target|over existing target|conflict'; then
         conflicts="$(printf '%s\n' "$sim" | sed -n -E \
             -e 's/^[[:space:]]*\* existing target (is neither a link nor a directory|is not owned by stow): (.*)$/\2/p' \
             -e 's/^.*over existing target (.*) since .*$/\1/p')"
@@ -281,89 +272,77 @@ stow_pkg() {
         fi
         while IFS= read -r f; do
             [ -n "$f" ] || continue
-            print_warning "  Conflict: ~/$f exists, moving to backup"
+            print_warning "~/$f exists; moving it to backup"
             mkdir -p "$BACKUP_DIR/conflicts/$(dirname "$f")"
             mv "$HOME/$f" "$BACKUP_DIR/conflicts/$f"
         done <<< "$conflicts"
-    done
+    fi
     stow -d "$DOTFILES_DIR" -t "$HOME" -R "$pkg"
 }
 
-print_status "Deploying dotfiles with GNU Stow..."
+print_status "Deploying XDG files with GNU Stow..."
 cd "$DOTFILES_DIR"
-
-# First pass: stow all packages
 for package in "${PACKAGES[@]}"; do
-    if [ -d "$DOTFILES_DIR/$package" ]; then
-        print_status "Stowing $package..."
-        if stow_pkg "$package"; then
-            print_success "$package stowed (symlinked to $HOME)"
-        else
-            FAILED_STOW+=("$package")
-        fi
+    if stow_pkg "$package"; then
+        print_success "$package stowed"
+    else
+        FAILED_STOW+=("$package")
     fi
 done
 
-print_success "All dotfiles stowed successfully!"
-
-# ----------------------------------------------------------------------------
-# Home-level dotfiles that must live directly in $HOME but are stored under
-# config/.config/ (stow cannot rename files, so these are plain symlinks that
-# point at the already-stowed copies in ~/.config).
-#   link_home  <path under ~/.config>  <name in $HOME>
-# ----------------------------------------------------------------------------
+# These are conventional compatibility entrypoints that some programs require.
+# Their real contents live under ~/.config.
 link_home() {
     local src="$HOME/.config/$1" dst="$HOME/$2"
-    if [ ! -e "$src" ]; then
-        print_warning "  $src missing in repo, skipping ~/$2"
-        return 0
-    fi
-    if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-        print_warning "  ~/$2 exists, moving to backup"
+    [ -e "$src" ] || { print_warning "$src missing; skipping ~/$2"; return 0; }
+    if [ -e "$dst" ] || [ -L "$dst" ]; then
+        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+            return 0
+        fi
+        print_warning "~/$2 exists; moving it to backup"
         mkdir -p "$BACKUP_DIR/conflicts"
         mv "$dst" "$BACKUP_DIR/conflicts/$2"
     fi
-    ln -sfn "$src" "$dst"
-    print_success "  ~/$2 -> $src"
+    ln -s "$src" "$dst"
+    print_success "~/$2 -> $src"
 }
 
-print_status "Linking home-level dotfiles..."
-link_home x11/xinitrc      .xinitrc
-link_home zsh/zshenv       .zshenv
-link_home bash/bashrc      .bashrc
+print_status "Creating compatibility links..."
+link_home x11/xinitrc .xinitrc
+link_home zsh/zshenv .zshenv
+link_home bash/bashrc .bashrc
 link_home bash/bash_profile .bash_profile
-link_home bash/bash_logout .bash_logout
 
-# ----------------------------------------------------------------------------
-# Remove legacy paths from before sources lived under ~/.config/
-# Old stow targets: ~/.local/share/{vxwm,dmenu,st-terminal,nsxiv,slock,zlstatus}
-# ----------------------------------------------------------------------------
-LEGACY_SHARE_APPS=(vxwm dmenu st-terminal nsxiv slock zlstatus)
-print_status "Cleaning legacy ~/.local/share app trees (now under ~/.config/)..."
-for name in "${LEGACY_SHARE_APPS[@]}"; do
-    old="$HOME/.local/share/$name"
-    new="$HOME/.config/$name"
-    if [ -L "$old" ] || [ -d "$old" ] || [ -f "$old" ]; then
-        # Only remove if the new location exists (stow succeeded) or old is a dangling link
-        if [ -e "$new" ] || [ -L "$old" ]; then
-            print_warning "  Removing legacy $old"
-            rm -rf "$old"
-        fi
-    fi
-done
-# Optional: drop empty leftover dirs under ~/.local/share that only held those apps
+# ~/.Xresources is no longer needed: Xresources now lives in ~/.config/x11/.
+# Preserve an existing file in the backup instead of deleting user data silently.
+if [ -e "$HOME/.Xresources" ] || [ -L "$HOME/.Xresources" ]; then
+    print_warning "~/.Xresources is legacy; moving it to backup"
+    mkdir -p "$BACKUP_DIR/conflicts"
+    mv "$HOME/.Xresources" "$BACKUP_DIR/conflicts/.Xresources"
+fi
 
+# Lowercase personal directories are owned by xdg-env.sh, not xdg-user-dirs.
+print_status "Creating lowercase user directories..."
+source "$HOME/.config/shell/xdg-env.sh"
+mkdir -p \
+    "$DESKTOP_DIR" \
+    "$DOCUMENTS_DIR" \
+    "$DOWNLOADS_DIR" \
+    "$MUSIC_DIR" \
+    "$PICTURES_DIR/screenshots" \
+    "$PICTURES_DIR/wallpapers" \
+    "$PUBLIC_DIR" \
+    "$TEMPLATES_DIR" \
+    "$VIDEOS_DIR"
+mkdir -p "$HOME/.local/state/mpd" "$HOME/.cache/mpd"
+print_success "desktop documents downloads music pictures public templates videos"
 
-
-
-
-echo ""
-print_status "Your home directory now has clean symlinks:"
-echo "  ~/.xinitrc, ~/.zshenv, ~/.bashrc, ~/.bash_profile, ~/.bash_logout"
-echo "                              -> ~/.config/{x11,zsh,bash}/ (-> config/.config/...)"
-echo "  ~/.config/*                 -> config/.config/*"
-echo "  ~/.local/bin/               -> bin/.local/bin/"
-echo "  ~/.local/share/*            -> share/ + wallpapers/"
+print_status "Home layout:"
+echo "  ~/.config/       -> $DOTFILES_DIR/config/.config"
+echo "  ~/.local/bin/    -> $DOTFILES_DIR/local/.local/bin"
+echo "  ~/.local/share/  -> $DOTFILES_DIR/local/.local/share"
+echo "  ~/desktop/ documents/ downloads/ music/ pictures/ public/ templates/ videos/"
+echo "  ~/.bashrc ~/.bash_profile ~/.zshenv ~/.xinitrc -> ~/.config/*"
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -406,98 +385,69 @@ fi
 # ----------------------------------------------------------------------------
 # Build suckless tools and custom programs
 # ----------------------------------------------------------------------------
-print_status "Building custom programs..."
+print_status "Building custom programs from ./src..."
 
-# Clean up any old binaries that might conflict
-print_status "Cleaning up old binaries..."
 for b in dmenu dmenu_run stest st vxwm zlstatus nsxiv slock; do
-    if [ -e "/usr/local/bin/$b" ]; then
-        print_warning "Removing old /usr/local/bin/$b"
-        sudo rm -f "/usr/local/bin/$b"
-    fi
     if [ -e "$HOME/.local/bin/$b" ]; then
-        print_warning "Removing old ~/.local/bin/$b"
         rm -f "$HOME/.local/bin/$b"
     fi
 done
 hash -r
 
-# build_make NAME DIR BIN...   (clean build with sudo make clean install)
-build_make() {
-    local name="$1" dir="$2" log; shift 2
-    [ -d "$dir" ] || return 0
-    log="/tmp/dotfiles-build-${name}.log"
+build_user_make() {
+    local name="$1" dir="$2"
+    local log="/tmp/dotfiles-build-${name}.log"
+    [ -d "$dir" ] || { print_warning "Source missing: $dir"; FAILED_BUILDS+=("$name"); return 0; }
     print_status "Building $name..."
-    # Build as user first (so logs are readable), then install with sudo
-    if ( cd "$dir" \
-         && { make clean >/dev/null 2>&1 || true; } \
-         && make -j"$JOBS" 2>&1 | tee "$log" \
-         && sudo make install 2>&1 | tee -a "$log" ); then
-        print_success "$name built and installed"
+    if ( cd "$dir"          && { make clean >/dev/null 2>&1 || true; }          && make -j"$JOBS" 2>&1 | tee "$log"          && make PREFIX="$HOME/.local" install 2>&1 | tee -a "$log" ); then
+        print_success "$name -> ~/.local/bin"
         rm -f "$log"
     else
-        print_error "$name build failed (continuing) — full log: $log"
+        print_error "$name build failed; full log: $log"
         tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
         FAILED_BUILDS+=("$name")
     fi
 }
 
-# Ensure pywal colour header exists so a mis-configured config.h cannot break the build.
-WAL_COLORS="$HOME/.cache/wal/colors-wal-dwm.h"
-if [ ! -f "$WAL_COLORS" ]; then
-    mkdir -p "$HOME/.cache/wal"
-    cat > "$WAL_COLORS" << 'WALEOF'
-static char normfgcolor[]     = "#c1c3c1";
-static char normbgcolor[]     = "#091207";
-static char normbordercolor[] = "#091207";
-static char selfgcolor[]      = "#091207";
-static char selbgcolor[]      = "#B7A05A";
-static char selbordercolor[]  = "#B7A05A";
-static char *colors[][3] = {
-    [SchemeNorm] = { normfgcolor,   normbgcolor,   normbordercolor },
-    [SchemeSel]  = { selfgcolor,    selbgcolor,    selbordercolor }
-};
-WALEOF
-    print_warning "Created fallback $WAL_COLORS (run wal -i <img> later to regenerate)"
-fi
-
-build_make vxwm "$HOME/.config/vxwm"        vxwm
-build_make dmenu "$HOME/.config/dmenu"       dmenu stest
-build_make st    "$HOME/.config/st-terminal" st
-build_make nsxiv "$HOME/.config/nsxiv"       nsxiv
-
-if [ -d "$HOME/.config/slock" ]; then
+build_slock() {
+    local dir="$DOTFILES_DIR/src/slock" log=/tmp/dotfiles-build-slock.log
     print_status "Building slock..."
-    if ( cd "$HOME/.config/slock" \
-         && sudo make clean >/dev/null 2>&1 \
-         && sudo make -j"$JOBS" install ); then
-        print_success "slock built and installed with 'sudo make clean install'"
+    if ( cd "$dir"          && { make clean >/dev/null 2>&1 || true; }          && make -j"$JOBS" 2>&1 | tee "$log"          && sudo make PREFIX=/usr/local install 2>&1 | tee -a "$log" ); then
+        print_success "slock -> /usr/local/bin/slock"
+        rm -f "$log"
     else
-        print_error "slock build failed (continuing)"
+        print_error "slock build failed; full log: $log"
+        tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
         FAILED_BUILDS+=("slock")
     fi
-fi
+}
 
-if [ -d "$HOME/.config/zlstatus" ]; then
+build_user_make vxwm "$DOTFILES_DIR/src/vxwm"
+build_user_make dmenu "$DOTFILES_DIR/src/dmenu"
+build_user_make st "$DOTFILES_DIR/src/st-terminal"
+build_user_make nsxiv "$DOTFILES_DIR/src/nsxiv"
+build_slock
+
+if [ -d "$DOTFILES_DIR/src/zlstatus" ]; then
     print_status "Building zlstatus..."
-    if command -v zig &>/dev/null \
-       && ( cd "$HOME/.config/zlstatus" \
-            && zig build -Dmode=X11 -Doptimize=ReleaseSmall --summary all \
-            && sudo install -Dm755 zig-out/bin/zlstatus /usr/local/bin/zlstatus ); then
-        print_success "zlstatus built and installed with zig"
+    log=/tmp/dotfiles-build-zlstatus.log
+    if ( cd "$DOTFILES_DIR/src/zlstatus" \
+         && zig build -Dmode=X11 -Doptimize=ReleaseSmall --summary all 2>&1 | tee "$log" \
+         && install -Dm755 zig-out/bin/zlstatus "$HOME/.local/bin/zlstatus" ); then
+        print_success "zlstatus -> ~/.local/bin/zlstatus"
+        rm -f "$log"
     else
-        print_error "zlstatus build failed (is zig installed? low RAM in the VM?) (continuing)"
+        print_error "zlstatus build failed; full log: $log"
+        tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
         FAILED_BUILDS+=("zlstatus")
     fi
 fi
 
 cd "$DOTFILES_DIR"
-
-# Sanity check: are all shared libraries of the built binaries resolvable?
 for b in vxwm dmenu st zlstatus nsxiv; do
-    if [ -x "/usr/local/bin/$b" ] && ldd "/usr/local/bin/$b" 2>/dev/null | grep -q 'not found'; then
+    if [ -x "$HOME/.local/bin/$b" ] && ldd "$HOME/.local/bin/$b" 2>/dev/null | grep -q 'not found'; then
         print_warning "$b has unresolved libraries:"
-        ldd "/usr/local/bin/$b" | grep 'not found' || true
+        ldd "$HOME/.local/bin/$b" | grep 'not found' || true
     fi
 done
 
@@ -520,17 +470,6 @@ if [ -d "$DOTFILES_DIR/systemd/etc" ]; then
             print_success "Installed systemd services"
         fi
     fi
-fi
-
-# ----------------------------------------------------------------------------
-# ZDOTDIR for zsh (~/.zshenv is linked by link_home above)
-# ----------------------------------------------------------------------------
-if [ -L "$HOME/.zshenv" ] || grep -q "ZDOTDIR" "$HOME/.zshenv" 2>/dev/null; then
-    print_success "ZDOTDIR already configured via stow (~/.zshenv)"
-else
-    print_status "Setting up ZDOTDIR..."
-    echo 'export ZDOTDIR="$HOME/.config/zsh"' >> "$HOME/.zshenv"
-    print_success "ZDOTDIR configured"
 fi
 
 # ----------------------------------------------------------------------------
@@ -600,7 +539,7 @@ if [ "${#FAILED_BUILDS[@]}" -gt 0 ]; then
     print_warning "Builds that failed: ${FAILED_BUILDS[*]}"
     echo "     Logs (if present): /tmp/dotfiles-build-<name>.log"
     echo "     Rebuild a single program after fixing:"
-    echo "       cd ~/.config/vxwm && make clean && make -j\$(nproc) && sudo make install"
+    echo "       cd ~/dotfiles/src/vxwm && make clean && make -j$(nproc) && make PREFIX="$HOME/.local" install"
     echo ""
 fi
 if [ "${#FAILED_STOW[@]}" -gt 0 ]; then
@@ -609,14 +548,19 @@ if [ "${#FAILED_STOW[@]}" -gt 0 ]; then
 fi
 
 print_status "Summary of installed programs:"
-echo "  Custom programs (compiled with 'sudo make clean install'):"
-for prog in vxwm dmenu st slock nsxiv zlstatus; do
-    if [ -x "/usr/local/bin/$prog" ]; then
-        echo "    ✓ $prog -> /usr/local/bin/$prog"
+echo "  Custom programs:"
+for prog in vxwm dmenu st nsxiv zlstatus; do
+    if [ -x "$HOME/.local/bin/$prog" ]; then
+        echo "    ✓ $prog -> ~/.local/bin/$prog"
     else
         echo "    ✗ $prog (build failed or not found)"
     fi
 done
+if [ -x /usr/local/bin/slock ]; then
+    echo "    ✓ slock -> /usr/local/bin/slock"
+else
+    echo "    ✗ slock (build failed or not found)"
+fi
 echo ""
 
 print_warning "Next steps:"
@@ -636,4 +580,4 @@ if $IS_VM && [[ "$VM_TYPE" == "kvm" || "$VM_TYPE" == "qemu" ]]; then
 fi
 echo ""
 print_status "Backup saved at: $BACKUP_DIR"
-print_status "See STOW_STRUCTURE.md for details on how the symlinks work"
+print_status "See STOW_STRUCTURE.md for the XDG/Stow layout"

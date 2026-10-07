@@ -1,4 +1,4 @@
-dmenu 5.4 with center 20250407 + xresources 4.9 patches, to be used with ```~/.Xresources``` or a program that sets colorscheme (such as [pywal](https://github.com/dylanaraps/pywal) or [pywal16](https://github.com/eylles/pywal16)). nothing special.
+dmenu 5.4 with center 20250407 + xresources 4.9 patches, to be used with ```~/.config/x11/Xresources``` or a program that sets colorscheme (such as [pywal](https://github.com/dylanaraps/pywal) or [pywal16](https://github.com/eylles/pywal16)). nothing special.
 
 for dmenu scripting walkthroughs and ideas, here are the videos I've made about it:
 - [you're not using dmenu at full power, yet...](https://youtu.be/4JWeU78A95c)

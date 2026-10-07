@@ -9,10 +9,11 @@
 *~
 .DS_Store
 
-# Build artifacts inside vendored trees
-share/.local/share/zlstatus/zig-out/
-share/.local/share/zlstatus/zig-cache/
-share/.local/share/*/config.h.bak
+# Build artifacts from vendored sources
+**/zig-out/
+**/zig-cache/
+**/config.h.bak
+src/*/config.h.bak
 
 # Secrets
 **/secrets.sh
@@ -20,18 +21,15 @@ share/.local/share/*/config.h.bak
 **/*.pem
 **/*.key
 
-# MPD runtime DB
-mpd/.config/mpd/database
-mpd/.config/mpd/state
-mpd/.config/mpd/pid
-mpd/.config/mpd/log
+# MPD runtime state
+**/mpd/database
+**/mpd/state
+**/mpd/pid
+**/mpd/log
+**/mpd/sticker.sql
 
-# Editor / plugin lock noise (keep lazy-lock if you want reproducible nvim)
-# nvim/.config/nvim/lazy-lock.json
+# Editor / plugin lock noise
+# Keep nvim/lazy-lock.json for reproducible plugin versions.
 
-# Large binary wallpaper dumps (store elsewhere or git-lfs)
-# wallpapers/.local/share/wallpapers/*
-# !wallpapers/.local/share/wallpapers/.gitkeep
-
-# Stow residual
+# Stow residuals
 .stow-local-ignore

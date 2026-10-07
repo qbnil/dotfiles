@@ -1,390 +1,204 @@
 # Arch Linux Dotfiles
 
-<p align="center">
-  <img src=".github/assets/screenshot.png" alt="Desktop Screenshot" width="100%">
-</p>
+XDG-first Arch Linux configuration for a lightweight X11 desktop built around vxwm, managed with GNU Stow.
 
-XDG-first Arch Linux configuration for vxwm desktop environment, managed with GNU Stow.
+## Architecture
 
-## Features
+The repository intentionally separates **configuration**, **user data**, and **source code**:
 
-- **Window Manager**: Custom vxwm (vendored and compiled from source)
-- **Terminal**: st (Simple Terminal, vendored)
-- **Shell**: Zsh with custom configuration
-- **Status Bar**: vxwm built-in bar with zlstatus (Zig) for right side modules (MPD, network, battery, volume, date)
-- **Application Launcher**: dmenu (vendored)
-- **Compositor**: xcompmgr
-- **File Manager**: yazi, thunar
-- **Editor**: neovim
-- **Multiplexer**: tmux
-- **Music**: mpd + rmpc
-- **Notifications**: dunst
-- **Wallpapers**: pywal16 with xwallpaper
-
-## Repository Structure
-
-```
+```text
 .
-├── config/            # ~/.config/*  (bash, zsh, x11, shell, nvim, tmux, git, yazi, dunst, …
-│                      #   plus vendored sources: vxwm, dmenu, st-terminal, nsxiv, slock, zlstatus)
-├── bin/               # ~/.local/bin   (personal scripts)
-├── share/             # ~/.local/share (cursors)
-├── wallpapers/        # ~/.local/share/wallpapers
-├── systemd/           # /etc (not stowed, copied by install.sh)
-├── bootstrap/         # package lists
+├── config/          # Stow package -> ~/.config
+├── local/           # Stow package -> ~/.local
+├── src/             # custom/vendored source code; never stowed
+├── systemd/         # /etc configuration installed separately
+├── bootstrap/       # pacman/yay package lists
 ├── install.sh
-└── test-stow.sh       # dry-run of the stow plan
+└── test-stow.sh
 ```
 
-Home-level files (`~/.xinitrc`, `~/.zshenv`, `~/.bashrc`, `~/.bash_profile`, `~/.bash_logout`) are plain
-symlinks created by `install.sh` that point at their stowed copies in `~/.config`, e.g.
-`~/.xinitrc` → `~/.config/x11/xinitrc` → `dotfiles/config/.config/x11/xinitrc`.
+This avoids the old pattern where complete source trees such as vxwm and dmenu were exposed as `~/.config/vxwm` and mixed with real application configuration.
 
+## Home directory layout
 
-`config`, `bin`, `share` and `wallpapers` are the **Stow packages** (each mirrors paths under `$HOME`). See `STOW_STRUCTURE.md`.
+After installation:
 
+```text
+~/.config/       -> dotfiles/config/.config/
+~/.local/bin/    -> dotfiles/local/.local/bin/
+~/.local/share/  -> dotfiles/local/.local/share/
 
-## Installation on Fresh Arch System
+~/.bashrc        -> ~/.config/bash/bashrc
+~/.bash_profile  -> ~/.config/bash/bash_profile
+~/.zshenv        -> ~/.config/zsh/zshenv
+~/.xinitrc       -> ~/.config/x11/xinitrc
 
-### 1. Clone the repository
+~/desktop
+~/documents
+~/downloads
+~/music
+~/pictures
+~/public
+~/templates
+~/videos
+```
+
+The home directories are real lowercase directories created by `install.sh`. Their canonical paths are defined in `~/.config/shell/xdg-env.sh`; they are not Stow links, so personal files placed there do not become part of the dotfiles repository.
+
+This repository deliberately does **not** use `xdg-user-dirs` or `~/.config/user-dirs.dirs`: that would introduce a second source of truth for the same directories.
+
+The four dotfiles in `$HOME` are compatibility entrypoints required by Bash, Zsh and `startx`; their actual contents live in `~/.config`.
+
+There is no `~/.Xresources`. The tracked Xresources file is `~/.config/x11/Xresources`, and the pywal helper updates that XDG path.
+
+## Installation
+
+This repository targets Arch Linux and expects to be run as a normal user:
 
 ```bash
 git clone https://github.com/qbnil/dotfiles.git ~/dotfiles
 cd ~/dotfiles
-```
-
-### 2. Run the installation script
-
-The install script will:
-- Update system packages
-- Install all native packages from `packages-native.txt`
-- Install yay AUR helper if not present
-- Install AUR packages from `packages-aur.txt`
-- Create XDG directories
-- Backup existing configurations
-- Deploy dotfiles using GNU Stow
-- Build custom programs (vxwm, dmenu, st, slock, zlstatus)
-- Set up systemd services
-
-```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-### 3. Configure personal information
+The installer:
 
-After stowing the dotfiles, you need to configure your personal information:
+1. Checks that the system is Arch Linux and that the user can use `sudo`.
+2. Detects virtual machines and avoids hardware-specific NVIDIA setup there.
+3. Installs the required native/AUR packages.
+4. Creates an automatic timestamped backup of existing configuration.
+5. Stows `config` and `local` into `$HOME`.
+6. Creates lowercase user directories from the paths defined by `xdg-env.sh`.
+7. Creates only the required compatibility links in `$HOME`.
+8. Builds the programs in `src/` into `~/.local/bin` (with the setuid `slock` installed to `/usr/local/bin`).
+9. Installs the repository's system-level files under `/etc` where applicable.
 
-#### Git Configuration
-
-Edit your git config to set your email and name:
-
-```bash
-# Edit the git config file
-$EDITOR ~/.config/git/config
-
-# Replace placeholders with your information:
-# email = YOUR_EMAIL@example.com  →  email = your.email@example.com
-# name = YOUR_NAME                →  name = Your Name
-```
-
-#### Secrets and API Keys
-
-The installation creates a template at `~/.config/shell/secrets.sh`. Edit it to add your API keys and tokens:
+### Preview Stow changes
 
 ```bash
-$EDITOR ~/.config/shell/secrets.sh
-
-# Add your environment variables:
-# export TAILSCALE_API_KEY="your-api-key-here"
-# export TAILSCALE_TAILNET="your-email@example.com"
-# export TAILSCALE_TARGET_DEVICE="your-device-hostname"
-# export TAILSCALE_AUTH_KEY="tskey-auth-..."
-# export TAILSCALE_EXIT_NODE="100.xxx.xxx.xxx"
+./test-stow.sh
 ```
 
-#### Tailscale Scripts
-
-If you use Tailscale, configure the environment variables in `~/.config/shell/secrets.sh`:
-
-- `TAILSCALE_API_KEY` - Your Tailscale API key
-- `TAILSCALE_TAILNET` - Your tailnet email (e.g., your-email@example.com)
-- `TAILSCALE_TARGET_DEVICE` - Device hostname to target for removal
-- `TAILSCALE_AUTH_KEY` - Your Tailscale auth key for `tailscale up`
-- `TAILSCALE_EXIT_NODE` - Exit node IP (optional)
-
-Then the scripts `tailscale-fix` and `tailscale-remove-node` will work.
-
-### 4. Log out and back in
-
-Apply all shell and environment changes by logging out and back in.
-
-### 5. Start X session
-
-```bash
-startx
-```
-
-## Manual Installation (Advanced)
-
-If you prefer manual control:
-
-```bash
-# Install packages
-sudo pacman -Syu
-sudo pacman -S --needed - < bootstrap/packages-native.txt
-yay -S --needed - < bootstrap/packages-aur.txt
-
-# Create XDG directories
-mkdir -p ~/.config ~/.local/{bin,share,state} ~/.cache
-
-# Deploy dotfiles with stow
-cd ~/dotfiles
-stow config bin share wallpapers
-
-# Home-level links (stow can't rename files)
-ln -sfn ~/.config/x11/xinitrc      ~/.xinitrc
-ln -sfn ~/.config/zsh/zshenv       ~/.zshenv
-ln -sfn ~/.config/bash/bashrc      ~/.bashrc
-ln -sfn ~/.config/bash/bash_profile ~/.bash_profile
-ln -sfn ~/.config/bash/bash_logout ~/.bash_logout
-
-# Build custom programs
-cd ~/.config/vxwm && make && install -Dm755 vxwm ~/.local/bin/vxwm
-cd ~/.config/dmenu && make && install -Dm755 dmenu stest ~/.local/bin/
-cd ~/.config/st-terminal && make && install -Dm755 st ~/.local/bin/st
-cd ~/.config/slock && make && sudo install -Dm4755 slock /usr/local/bin/slock
-cd ~/.config/zlstatus && zig build && install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
-
-# Create secrets file
-cp ~/dotfiles/config/.config/shell/secrets.sh.example ~/.config/shell/secrets.sh
-chmod 600 ~/.config/shell/secrets.sh
-$EDITOR ~/.config/shell/secrets.sh
-```
-
-## Stow Management
-
-### Deploy a package
+### Manual Stow operations
 
 ```bash
 cd ~/dotfiles
-stow config   # or bin / share / wallpapers
+stow config local       # deploy
+stow -R config local    # restow
+stow -D config local    # remove links
 ```
 
-### Remove a package
+## Custom programs
+
+The following source trees live under `src/` and are rebuilt on a new machine:
+
+- `src/vxwm`
+- `src/dmenu`
+- `src/st-terminal`
+- `src/nsxiv`
+- `src/slock`
+- `src/zlstatus`
+
+Normal programs install to `~/.local/bin`; `slock` is installed to `/usr/local/bin` because it requires setuid permissions.
+
+To rebuild vxwm manually:
 
 ```bash
-cd ~/dotfiles
-stow -D config
+cd ~/dotfiles/src/vxwm
+make clean
+make -j"$(nproc)"
+make PREFIX="$HOME/.local" install
 ```
 
-### Restow (update) a package
+For the rest, use the same pattern with their corresponding source directory. `zlstatus` is built with Zig:
 
 ```bash
-cd ~/dotfiles
-stow -R config
+cd ~/dotfiles/src/zlstatus
+zig build -Dmode=X11 -Doptimize=ReleaseSmall
+install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 ```
 
-### Preview changes (dry run)
+## Shell configuration
 
-```bash
-cd ~/dotfiles
-stow --simulate --verbose config
+`~/.config/shell/xdg-env.sh` is the central environment file. It sets:
+
+- `XDG_CONFIG_HOME`
+- `XDG_DATA_HOME`
+- `XDG_CACHE_HOME`
+- `XDG_STATE_HOME`
+- `ZDOTDIR`
+- editor/browser/terminal defaults
+- application-specific XDG locations
+- the user-local executable path
+
+Secrets belong in `~/.config/shell/secrets.sh`; this file is ignored by git.
+
+## XDG user directories
+
+`~/.config/shell/xdg-env.sh` deliberately defines the user directories in lowercase. The standard set is:
+
+```text
+~/desktop
+~/documents
+~/downloads
+~/music
+~/pictures
+~/public
+~/templates
+~/videos
 ```
 
-## Key Components
+Wallpapers and screenshots are kept under `~/pictures/` rather than creating additional mixed-case directories or putting personal media into the dotfiles repository.
 
-### Shell Environment
+## Backups and migration
 
-- **XDG Base Directory**: Properly configured for all applications
-- **Shell**: Zsh with custom prompt, history, and keybindings
-- **Environment**: Centralized in `~/.config/shell/xdg-env.sh`
-- **Secrets**: Separate `secrets.sh` file (gitignored) for API keys
+`install.sh` creates:
 
-### Window Manager (vxwm)
-
-Custom tiling window manager built from source. Configuration in `~/.config/vxwm/config.h`.
-
-Key features:
-- Dynamic tiling layouts
-- Custom keybindings
-- Minimal resource usage
-- Integrated with zlstatus
-
-### Programs
-
-All suckless-style programs are vendored in `config/.config/` (stow → `~/.config/`)  with their source code and configurations. Build artifacts are ignored by git and regenerated on each machine.
-
-## Secrets Management
-
-Secrets are stored in `~/.config/shell/secrets.sh` and sourced by `xdg-env.sh`. This file is:
-- **Never committed** to git (in .gitignore)
-- **Created from template** `secrets.sh.example` during installation
-- **Sourced automatically** by the shell environment
-
-Add your API keys there:
-```bash
-export ANTHROPIC_AUTH_TOKEN="your-token-here"
-export TAILSCALE_AUTHKEY="your-key-here"
-# etc.
+```text
+~/dotfiles-backup-YYYYMMDD-HHMMSS/
 ```
 
-## Package Lists
+Existing `.config`, `.local/bin`, `.local/share` and home-level compatibility files are preserved there before conflicting Stow targets are replaced.
 
-### Updating Package Lists
-
-After installing new packages:
-
-```bash
-# Native packages
-pacman -Qn | awk '{print $1}' > bootstrap/packages-native.txt
-
-# AUR packages
-pacman -Qm | awk '{print $1}' > bootstrap/packages-aur.txt
-
-# Commit the changes
-git add bootstrap/packages-*.txt
-git commit -m "Update package lists"
-```
+If an old `~/.Xresources` exists, the installer moves it into the backup because the new configuration uses `~/.config/x11/Xresources`.
 
 ## Maintenance
 
-### Update dotfiles from git
+Update the repository and restow:
 
 ```bash
 cd ~/dotfiles
 git pull
-stow -R config bin share wallpapers
+stow -R config local
 ```
 
-### Rebuild custom programs
+Then rebuild custom programs if their source changed:
 
 ```bash
-cd ~/.config/vxwm && make clean && make && install -Dm755 vxwm ~/.local/bin/vxwm
-cd ~/.config/dmenu && make clean && make && install -Dm755 dmenu stest ~/.local/bin/
-# etc.
+./install.sh
 ```
 
-### Backup current configurations
+Check the resulting Stow plan at any time with:
 
 ```bash
-backup_dir="$HOME/dotfiles-backup-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$backup_dir"
-cp -a ~/.config "$backup_dir/"
-cp -a ~/.local/bin "$backup_dir/"
+./test-stow.sh
 ```
 
-## What's Gitignored
+## Packages
 
-- **Secrets**: API keys, tokens, credentials, SSH keys
-- **Build artifacts**: `.o`, `.so`, compiled binaries
-- **Runtime files**: History files, cache, Xauthority
-- **Cache directories**: Any `.cache/` folders
-- **Editor files**: Swap files, IDE directories
+Package lists are kept in `bootstrap/packages-native.txt` and `bootstrap/packages-aur.txt`.
 
-See `.gitignore` for full list.
+## NVIDIA suspend fix
 
-## Nvidia Laptop Suspend/Resume Fix
+The repository also contains an optional NVIDIA suspend/resume fix under `systemd/`. The installer skips NVIDIA-specific system files in VMs.
 
-If you have a laptop with an Nvidia GPU (like GTX 1650) and experience a black screen with only a cursor after closing and reopening the lid, this repository includes a comprehensive fix.
-
-### The Problem
-
-When closing the laptop lid:
-- Screen turns off properly
-- Laptop goes into suspend
-- After opening the lid: **black screen with cursor only**
-- Can't do anything except login to different tty or reboot
-
-### The Solution
-
-The fix includes three components:
-
-1. **Kernel Parameter** - Forces Nvidia driver to use kernel mode setting
-2. **Systemd Sleep Hook** - Reinitializes GPU on resume
-3. **Modprobe Configuration** - Optimizes driver for suspend/resume
-
-### Installation
-
-Run the automated setup script:
+The helper can be run after installation when needed:
 
 ```bash
 ~/.local/bin/fix-nvidia-suspend
 ```
 
-The script will:
-- Add `nvidia_drm.modeset=1` to GRUB kernel parameters
-- Install systemd sleep hook at `/etc/systemd/system-sleep/nvidia-suspend.sh`
-- Create Nvidia modprobe configuration at `/etc/modprobe.d/nvidia.conf`
-- Backup existing configurations before making changes
+## Security
 
-**Important:** Reboot after running the script for changes to take effect.
-
-### Manual Installation
-
-If you prefer to install manually:
-
-```bash
-# 1. Copy systemd sleep hook
-sudo cp ~/dotfiles/systemd/etc/systemd/system-sleep/nvidia-suspend.sh /etc/systemd/system-sleep/
-sudo chmod +x /etc/systemd/system-sleep/nvidia-suspend.sh
-
-# 2. Copy modprobe configuration
-sudo cp ~/dotfiles/systemd/etc/modprobe.d/nvidia.conf /etc/modprobe.d/
-
-# 3. Update GRUB
-sudo nano /etc/default/grub
-# Add nvidia_drm.modeset=1 to GRUB_CMDLINE_LINUX_DEFAULT
-sudo grub-mkconfig -o /boot/grub/grub.cfg
-
-# 4. Reboot
-sudo reboot
-```
-
-### Testing
-
-After rebooting:
-1. Close the laptop lid (or run: `systemctl suspend`)
-2. Open the lid or press a key to wake
-3. Screen should properly resume now
-
-If issues persist, try pressing `Alt+F2` after waking to manually switch ttys.
-
-### What It Does
-
-- **nvidia_drm.modeset=1**: Enables kernel mode setting for the Nvidia driver, which is more reliable for suspend/resume
-- **Sleep hook**: Automatically reloads Nvidia kernel modules (nvidia, nvidia_modeset, nvidia_drm) when resuming from suspend
-- **Modprobe config**: Sets `NVreg_UsePageAttributeTable=1` and confirms `nvidia_drm.modeset=1` at module load time
-
-For more details, see the documentation in `~/.local/share/documents/helpbook/linux <3 nvidia-suspend-resume-fix.md`
-
-## Troubleshooting
-
-### Stow conflicts
-
-If stow reports conflicts with existing files:
-
-```bash
-# Option 1: Backup and remove existing files
-mv ~/.config/zsh ~/.config/zsh.bak
-
-# Option 2: Adopt existing files into repo
-cd ~/dotfiles
-stow --adopt config
-git diff  # Review what was adopted
-```
-
-### Build errors
-
-Ensure you have the required build dependencies:
-- base-devel package group
-- libx11, libxft, libxinerama for suckless tools
-- zig for zlstatus
-
-### Missing secrets
-
-If environment variables are undefined, ensure `~/.config/shell/secrets.sh` exists and is sourced.
-
-## License
-
-Personal dotfiles - use at your own discretion.
+Do not commit secrets, private keys or credentials. The repository's `.gitignore` covers common secret and build-artifact patterns.

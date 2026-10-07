@@ -1,43 +1,104 @@
-# Stow structure
+# Stow & XDG structure
 
-Each directory at the repo root is a **GNU Stow package** (mirrors paths under `$HOME`).
+The repository follows one simple rule: **configuration is data, build sources are not home-directory data**.
+GNU Stow only deploys the two packages below.
 
-```bash
-stow -d ~/dotfiles -t ~ <package>
+```text
+~/dotfiles/
+├── config/                 # Stow package -> ~/.config/
+│   └── .config/
+│       ├── bash/
+│       ├── zsh/
+│       ├── x11/
+│       ├── shell/
+│       ├── nvim/
+│       ├── tmux/
+│       ├── git/
+│       ├── yazi/
+│       ├── dunst/
+│       ├── mpd/
+│       └── ...
+├── local/                  # Stow package -> ~/.local/
+│   └── .local/
+│       ├── bin/
+│       └── share/
+├── src/                    # build sources; never stowed
+│   ├── vxwm/
+│   ├── dmenu/
+│   ├── st-terminal/
+│   ├── nsxiv/
+│   ├── slock/
+│   └── zlstatus/
+├── systemd/                # copied to /etc by install.sh
+└── bootstrap/              # package lists
 ```
 
-## Packages
+## What appears in `$HOME`
 
-| Package | Links into `$HOME` |
-|---------|---------------------|
-| `bash/` | `~/.bashrc`, `~/.bash_profile` |
-| `zsh/` | `~/.zshenv` (`ZDOTDIR=~/.config/zsh`) |
-| `x11/` | `~/.xinitrc` |
-| `config/` | `~/.config/{bash,zsh,nvim,tmux,shell,dunst,git,mpd,yazi,feh,flameshot,gtk-3.0,nvidia,wal,x11}/` |
-| `bin/` | `~/.local/bin/` |
-| `share/` | `~/.config/{vxwm,dmenu,st-terminal,nsxiv,slock,zlstatus}/` + `~/.local/share/honkai-star-rail-cursors/` |
-| `wallpapers/` | `~/.local/share/wallpapers/` |
+The intended result is deliberately boring:
 
-## Not stowed
+```text
+~
+├── .bashrc          -> ~/.config/bash/bashrc
+├── .bash_profile    -> ~/.config/bash/bash_profile
+├── .zshenv          -> ~/.config/zsh/zshenv
+├── .xinitrc         -> ~/.config/x11/xinitrc
+├── .config/         -> dotfiles/config/.config/*
+├── .local/          -> dotfiles/local/.local/*
+├── desktop/
+├── documents/
+├── downloads/
+├── music/
+├── pictures/
+├── public/
+├── templates/
+└── videos/
+```
 
-| Path | Why |
-|------|-----|
-| `systemd/` | Installed under `/etc/` by `install.sh` |
-| `bootstrap/` | Package lists only |
+`~/.bashrc`, `~/.bash_profile`, `~/.zshenv` and `~/.xinitrc` are compatibility entrypoints required by their respective programs. Their actual configuration remains under `~/.config`.
 
-## Rules
+There is intentionally **no `~/.Xresources`**. The tracked Xresources file is `~/.config/x11/Xresources`; pywal updates that XDG path directly.
 
-1. **One owner per path** — app configs live only under `config/` (or `share/` for vendored source trees).
-2. **Vendored sources** (vxwm, st, …) stay in `share/.config/` so builds run from `~/.config/vxwm` etc.
-3. **No runtime state** in git (MPD DB, wal cache, secrets).
-4. **`.xinitrc`** is only `x11/.xinitrc` → `~/.xinitrc`.
-5. **Xresources** static file: `config/.config/x11/Xresources` → `~/.config/x11/Xresources`; colours from pywal at runtime.
+## Lowercase XDG directories
 
-## Adding a new app config
+`config/.config/shell/xdg-env.sh` is the single source of truth for the lowercase user directories:
+
+- `~/desktop`
+- `~/documents`
+- `~/downloads`
+- `~/music`
+- `~/pictures`
+- `~/public`
+- `~/templates`
+- `~/videos`
+
+`install.sh` sources that file and creates the directories. The repository does not use `xdg-user-dirs` or `user-dirs.dirs`.
+
+## Stow commands
 
 ```bash
-mkdir -p config/.config/myapp
-# add files…
-# restow
-stow -d ~/dotfiles -t ~ -R config
+cd ~/dotfiles
+stow config local
 ```
+
+Preview:
+
+```bash
+./test-stow.sh
+```
+
+Remove the links:
+
+```bash
+stow -D config local
+```
+
+Restow after an update:
+
+```bash
+stow -R config local
+```
+
+## Why source code is outside Stow
+
+`vxwm`, `dmenu`, `st`, `nsxiv`, `slock` and `zlstatus` are programs, not user configuration. Keeping their source under `src/` prevents a large compiler tree from appearing as `~/.config/vxwm`, avoids polluting XDG config with build artifacts, and makes rebuilds independent of the deployed dotfiles.

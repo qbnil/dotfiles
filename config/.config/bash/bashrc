@@ -1,9 +1,8 @@
-# ~/.config/bash/bashrc
+# Interactive Bash configuration.
 [[ $- != *i* ]] && return
+
+. "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh"
 
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 PS1='[\u@\h \W]\$ '
-
-# Source shared XDG environment
-[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh" ] && . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh"

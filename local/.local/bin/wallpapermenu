@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Wallpaper picker → wal → ~/.local/bin/pywal16 (your fast-path postrun)
 
-FOLDER="${XDG_DATA_HOME:-$HOME/.local/share}/wallpapers"
-[[ -d "$FOLDER" ]] || FOLDER="${XDG_DATA_HOME:-$HOME/.local/share}/pictures/active-wallpaper-collection"
-[[ -d "$FOLDER" ]] || FOLDER="${HOME}/pictures"
+FOLDER="${HOME}/pictures/wallpapers"
+[[ -d "$FOLDER" ]] || FOLDER="${XDG_DATA_HOME:-$HOME/.local/share}/wallpapers"
 
 SCRIPT="${HOME}/.local/bin/pywal16"
 

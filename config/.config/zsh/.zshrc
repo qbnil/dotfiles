@@ -2,10 +2,6 @@
 # read second
 
 
-# source global shell alias & variables files
-[ -f "$XDG_CONFIG_HOME/shell/alias" ] && source "$XDG_CONFIG_HOME/shell/alias"
-[ -f "$XDG_CONFIG_HOME/shell/vars" ] && source "$XDG_CONFIG_HOME/shell/vars"
-
 # load modules
 zmodload zsh/complist
 autoload -U compinit && compinit
@@ -95,6 +91,3 @@ export PATH
 # syntax highlighting
 # requires zsh-syntax-highlighting package
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-
-# Source XDG environment
-[ -f "$XDG_CONFIG_HOME/shell/xdg-env.sh" ] && source "$XDG_CONFIG_HOME/shell/xdg-env.sh"

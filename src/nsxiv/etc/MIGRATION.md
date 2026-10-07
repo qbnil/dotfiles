@@ -11,7 +11,7 @@ from `sxiv`.
 `~/.config/sxiv/exec/key-handler`.
 
 `nsxiv` uses the same logic to find the config dir but uses the name "nsxiv".
-E.g `~/.config/nsxiv/...`.
+E.g `~/dotfiles/src/nsxiv/...`.
 
 The "exec" scripts such as `key-handler` and `image-info` in `nsxiv` has some
 more features, but all previous argument order are preserved. And so if you have

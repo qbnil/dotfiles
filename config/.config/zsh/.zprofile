@@ -1,6 +1,6 @@
 #!/bin/sh
 # Login shell setup - source centralized env
-source "$HOME/.config/shell/xdg-env.sh"
+. "$HOME/.config/shell/xdg-env.sh"
 
 # XDG_CURRENT_DESKTOP
 export XDG_CURRENT_DESKTOP=vxwm

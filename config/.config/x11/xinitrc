@@ -1,6 +1,8 @@
 #!/bin/sh
 
 export XDG_SESSION_TYPE=x11
+. "$HOME/.config/shell/xdg-env.sh"
+export PATH="$HOME/.local/bin:$PATH"
 
 # Input setup - fast, but backgrounded anyway so it can't add up
 xinput --set-prop "Elan Touchpad" "libinput Natural Scrolling Enabled" 1 &
@@ -15,13 +17,12 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # Kept synchronous: if vxwm or its bar read colors/fonts from Xresources at
 # startup, this needs to land before `exec vxwm`. No Python involved - just
 # reading the cache files your wallpaper-setter script already wrote last
-# time you changed wallpaper (~/.Xresources is a symlink to
-# ~/.cache/wal/colors.Xresources from that script), so this is a couple of
+# time you changed wallpaper (Xresources lives under $XDG_CONFIG_HOME and pywal updates it from its cache), so this is a couple of
 # file reads + xrdb, should be single-digit ms even on battery.
-cat ~/.Xresources ~/.cache/wal/xrdb_extra 2>/dev/null | xrdb -merge
+cat "$XDG_CONFIG_HOME/x11/Xresources" "$HOME/.cache/wal/xrdb_extra" 2>/dev/null | xrdb -merge
 # ~/.config/vxpanel/startup.sh
 
-$HOME/.config/zlstatus/zig-out/bin/zlstatus &
+zlstatus &
 
 # Wallpaper: reuse the cached path from the last time wal set one
 # (~/.cache/wal/wal is a plain-text file containing that path) and blit it

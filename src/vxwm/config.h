@@ -27,7 +27,7 @@ static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passma
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
 /* Compile-time colour defaults. At runtime the XRDB module (and your
- * xinitrc + pywal) overwrite these from ~/.Xresources / wal cache.
+ * xinitrc + pywal) overwrite these from ~/.config/x11/Xresources / wal cache.
  * Do NOT #include a shell path here — the C preprocessor cannot expand $HOME.
  */
 static MAYBE_CONST char normbgcolor[]           = "#091207";

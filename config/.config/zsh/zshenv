@@ -1,1 +1,2 @@
-export ZDOTDIR="$HOME/.config/zsh"
+# zsh reads this before .zprofile and .zshrc.
+export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
