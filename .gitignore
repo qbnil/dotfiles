@@ -20,6 +20,19 @@ src/*/config.h.bak
 **/*secret*
 **/*.pem
 **/*.key
+**/.gnupg/
+**/*.gpg
+**/*.kdbx
+**/.password-store/
+**/password-store/
+
+# Runtime state that can contain decrypted secrets
+# nvim undo files hold full previous buffer contents (incl. pass show output),
+# claude.json may carry session/auth tokens, cliphist DB stores copied secrets.
+**/.local/state/
+**/undo/
+**/claude.json
+**/cliphist.db
 
 # MPD runtime state
 **/mpd/database
