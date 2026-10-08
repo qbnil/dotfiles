@@ -17,6 +17,12 @@ xdotool key super+F5 &
   if [[ -x "$HOME/.local/bin/regenerate-gtk-theme.sh" ]]; then
     "$HOME/.local/bin/regenerate-gtk-theme.sh"
   fi
+  # Update dunst colors from pywal
+  if [[ -f "$HOME/.cache/wal/dunstrc" ]]; then
+    mkdir -p "$HOME/.config/dunst/dunstrc.d"
+    cp "$HOME/.cache/wal/dunstrc" "$HOME/.config/dunst/dunstrc.d/90-pywal.conf"
+    pkill -x dunst 2>/dev/null; (dunst >/dev/null 2>&1 &)
+  fi
   # ln -sf ~/.cache/wal/colors-obsidian.css ~/dotfiles/helpbook/.obsidian/snippets/colors-obsidian.css
 ) &
 # Return immediately without waiting for background jobs
