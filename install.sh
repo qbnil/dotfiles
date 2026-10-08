@@ -405,7 +405,7 @@ fi
 # ----------------------------------------------------------------------------
 print_status "Building custom programs from ./src..."
 
-for b in dmenu dmenu_run stest st vxwm zlstatus nsxiv slock; do
+for b in dmenu dmenu_run stest st vxwm zlstatus nsxiv slock dmenu-win; do
     if [ -e "$HOME/.local/bin/$b" ]; then
         rm -f "$HOME/.local/bin/$b"
     fi
@@ -444,6 +444,7 @@ build_user_make vxwm "$DOTFILES_DIR/src/vxwm"
 build_user_make dmenu "$DOTFILES_DIR/src/dmenu"
 build_user_make st "$DOTFILES_DIR/src/st-terminal"
 build_user_make nsxiv "$DOTFILES_DIR/src/nsxiv"
+build_user_make dmenu-win "$DOTFILES_DIR/src/dmenu-win"
 build_slock
 
 if [ -d "$DOTFILES_DIR/src/zlstatus" ]; then

@@ -1,0 +1,159 @@
+#!/bin/sh
+
+#!/bin/sh
+# dmenu window switcher
+#   st: ~/.local/bin   st: claude   waterfox: youtube   obsidian: note name
+
+echo_err() { echo "$0: $1" >&2; }
+err() { echo_err "$1"; exit 1; }
+check_dep() { command -v "$1" > /dev/null || err "$1 is required: $2"; }
+
+check_dep xdotool https://github.com/jordansissel/xdotool
+check_dep xprop   https://gitlab.freedesktop.org/xorg/app/xprop
+
+SHELLS=" bash zsh sh dash fish ksh "
+TRUNC=40
+
+# ---------- helpers ----------
+
+trunc() { printf '%s' "$1" | sed -E "s/^(.{$2}).+\$/\1…/"; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# Most recently used first (stacking order is bottom -> top, so reverse it)
+get_windows_ids() {
+    list="$(xprop -root _NET_CLIENT_LIST_STACKING 2> /dev/null)"
+    case "$list" in
+        *'# 0x'*) ;;   # stacking list available (bottom -> top)
+        *)
+            list="$(xprop -root _NET_CLIENT_LIST 2> /dev/null)"
+            case "$list" in
+                *'# 0x'*) ;;
+                *) err "Failed to get windows list" ;;
+            esac
+            ;;
+    esac
+    printf '%s\n' "$list" | sed 's/^.*# //; s/, */\n/g' | tac | awk '!seen[$0]++'
+}
+
+get_active_id() {
+    id="$(xprop -root _NET_ACTIVE_WINDOW 2> /dev/null | awk '{print $NF}')"
+    printf '%d' "$id" 2> /dev/null
+}
+
+get_window_name() {
+    # Prefer UTF-8 name, fall back to legacy WM_NAME
+    n="$(xprop -id "$1" _NET_WM_NAME 2> /dev/null)"
+    case "$n" in *'= "'*) ;; *) n="$(xprop -id "$1" WM_NAME 2> /dev/null)" ;; esac
+    printf '%s' "$n" | sed 's/^[^=]*= //; s/^"//; s/"$//; s/\\"/"/g'
+}
+
+# Second field of WM_CLASS (the real class), lowercased: "Waterfox" -> waterfox
+get_window_class() {
+    xprop -id "$1" WM_CLASS 2> /dev/null \
+        | sed 's/^[^=]*= //; s/"//g; s/.*, *//' | tr '[:upper:]' '[:lower:]'
+}
+
+get_window_pid() {
+    xprop -id "$1" _NET_WM_PID 2> /dev/null | awk '{print $NF}' | grep -E '^[0-9]+$'
+}
+
+# ---------- terminals ----------
+
+# Follow the newest child at each level down to the foreground process
+get_leaf_pid() {
+    cur="$1"; depth=0
+    while [ "$depth" -lt 15 ]; do
+        child="$(pgrep -P "$cur" 2> /dev/null | tail -1)"
+        [ -z "$child" ] && break
+        cur="$child"; depth=$((depth + 1))
+    done
+    echo "$cur"
+}
+
+# Name of a program; for interpreters use the script name (node .../claude -> claude)
+get_program_name() {
+    comm="$(ps -p "$1" -o comm= 2> /dev/null | tr -d ' ')"
+    case "$comm" in
+        node|python*|ruby|perl|bun|deno)
+            script="$(ps -p "$1" -o args= 2> /dev/null | awk '{print $2}')"
+            [ -n "$script" ] && comm="$(basename "$script")"
+            ;;
+    esac
+    echo "$comm"
+}
+
+terminal_label() {
+    pid="$(get_window_pid "$1")" || return 1
+    leaf="$(get_leaf_pid "$pid")"
+    prog="$(get_program_name "$leaf")"
+
+    case "$SHELLS" in
+        *" $prog "*|"")
+            cwd="$(readlink "/proc/$leaf/cwd" 2> /dev/null)"
+            case "$cwd" in "$HOME"*) cwd="~${cwd#"$HOME"}" ;; esac
+            echo "${cwd:-$prog}"
+            ;;
+        *) echo "$prog" ;;
+    esac
+}
+
+# ---------- apps ----------
+
+browser_label() {
+    # strip "— Waterfox", "- Mozilla Firefox", etc.
+    t="$(printf '%s' "$1" | sed -E 's/ (-|—|–) (Waterfox|Mozilla Firefox|Firefox).*$//')"
+    # last segment is usually the site: "Video title - YouTube" -> youtube
+    site="$(printf '%s' "$t" | sed -nE 's/.* (-|—|–|\||·) //p')"
+    [ -z "$site" ] && site="$t"
+    trunc "$(lower "$site")" 30
+}
+
+obsidian_label() {
+    # "Note - Vault - Obsidian v1.x" -> "Note"
+    t="$(printf '%s' "$1" | sed -E 's/ - Obsidian.*$//')"
+    printf '%s' "$t" | sed -E 's/^(.+) - .+$/\1/'
+}
+
+# ---------- build menu ----------
+# Output: "<window id>\t<label>"
+
+get_windows() {
+    active="$(get_active_id)"
+    get_windows_ids | while read -r id; do
+        [ "$(printf '%d' "$id" 2> /dev/null)" = "$active" ] && continue  # skip current window
+        name="$(get_window_name "$id")"
+        [ -z "$name" ] && continue
+        class="$(get_window_class "$id")"
+        [ -z "$class" ] && class="unknown"
+
+        case "$class" in
+            st|st-256color|xterm|alacritty|kitty|foot|urxvt)
+                detail="$(terminal_label "$id")"
+                ;;
+            waterfox|firefox|navigator)
+                class="waterfox"
+                detail="$(browser_label "$name")"
+                ;;
+            obsidian)
+                detail="$(obsidian_label "$name")"
+                ;;
+            *)
+                detail="$(trunc "$name" "$TRUNC")"
+                ;;
+        esac
+
+        [ -n "$detail" ] && printf '%s\t%s: %s\n' "$id" "$class" "$detail" \
+                         || printf '%s\t%s\n' "$id" "$class"
+    done | awk -F'\t' 'BEGIN{OFS="\t"} {c[$2]++; if (c[$2]>1) $2=$2" ("c[$2]")"; print}'
+}
+
+[ -z "$DMENU" ] && DMENU='dmenu -i -l 15 -p window:'
+
+windows="$(get_windows)"
+[ -z "$windows" ] && err "no windows found"
+
+selection="$(echo "$windows" | cut -f2- | eval "$DMENU")"
+[ -z "$selection" ] && exit 0
+
+id="$(echo "$windows" | awk -F'\t' -v s="$selection" '$2==s {print $1; exit}')"
+[ -n "$id" ] && xdotool windowactivate "$id"
