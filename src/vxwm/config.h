@@ -26,6 +26,7 @@ static const char *cliphistsel[] = { "cliphist", "sel", NULL };
 static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passmanager", NULL };
 static const char *opencode_cmd[] = { "st", "-e", "opencode", NULL };
 static const char *claude_cmd[] = { "st", "-e", "claude", NULL };
+static const char *tailscaletoggle[] = { "tailscaletoggle", NULL };
 
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
@@ -199,6 +200,7 @@ static const Key keys[] = {
   { MODKEY|ShiftMask,             XK_p,      spawn,      {.v = passmanagercmd} },
   { MODKEY|ShiftMask,             XK_o,      spawn,      {.v = opencode_cmd} },
   { MODKEY|ShiftMask,             XK_c,      spawn,      {.v = claude_cmd} },
+  { MODKEY|ShiftMask,             XK_backslash, spawn,   {.v = tailscaletoggle} },
 	{ MODKEY,                       XK_b,      togglebar,      {0} },
 //	{ 0,				XKB_KEY_XF86AudioRaiseVolume, spawn, {.v = up_vol} },
 //	{ 0,				XKB_KEY_XF86AudioLowerVolume, spawn, {.v = down_vol} },

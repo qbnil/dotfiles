@@ -1,0 +1,19 @@
+#!/bin/sh
+# Toggle Tailscale on/off.
+# Bound to Super+Shift+\ in vxwm config.h
+
+state=$(tailscale status --json 2>/dev/null | jq -r '.Self.Online // false')
+
+if [ "$state" = "true" ]; then
+	if msg=$(tailscale down 2>&1); then
+		notify-send -i network-vpn-offline "Tailscale" "Disconnected" 2>/dev/null
+	else
+		notify-send -u critical -i dialog-error "Tailscale" "Disconnect failed: $msg" 2>/dev/null
+	fi
+else
+	if msg=$(tailscale up 2>&1); then
+		notify-send -i network-vpn "Tailscale" "Connected" 2>/dev/null
+	else
+		notify-send -u critical -i dialog-error "Tailscale" "Connect failed: $msg" 2>/dev/null
+	fi
+fi
