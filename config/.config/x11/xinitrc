@@ -18,7 +18,10 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # reading the cache files your wallpaper-setter script already wrote last
 # time you changed wallpaper (Xresources lives under $XDG_CONFIG_HOME and pywal updates it from its cache), so this is a couple of
 # file reads + xrdb, should be single-digit ms even on battery.
-cat "$XDG_CONFIG_HOME/x11/Xresources" "$HOME/.cache/wal/xrdb_extra" 2>/dev/null | xrdb -merge
+"$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
+cat "$XDG_CONFIG_HOME/x11/Xresources" \
+    "$HOME/.cache/wal/colors.Xresources" \
+    "$HOME/.cache/wal/xrdb_extra" 2>/dev/null | xrdb -merge
 # ~/.config/vxpanel/startup.sh
 
 zlstatus &
