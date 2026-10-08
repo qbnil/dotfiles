@@ -12,7 +12,7 @@ The repository intentionally separates **configuration**, **user data**, and **s
 ├── local/           # Stow package -> ~/.local
 ├── src/             # custom/vendored source code; never stowed
 ├── systemd/         # /etc configuration installed separately
-├── bootstrap/       # pacman/yay package lists
+├── bootstrap/       # pacman/yay package lists + install-time config templates
 ├── install.sh
 └── test-stow.sh
 ```

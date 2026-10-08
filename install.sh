@@ -179,7 +179,8 @@ FONT_PKGS=(ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji ttf-font-awesom
 
 APP_PKGS=(zsh neovim tmux dunst libnotify mpd mpc yazi thunar
           pipewire pipewire-pulse wireplumber networkmanager
-          zram-generator xdg-utils ripgrep fd fzf)
+          zram-generator xdg-utils ripgrep fd fzf
+          udisks2 udisks2-btrfs gvfs gvfs-mtp thunar-volman polkit polkit-gnome upower)
 
 pacman_install "${BUILD_DEPS[@]}" "${X_PKGS[@]}" "${FONT_PKGS[@]}" "${APP_PKGS[@]}"
 
@@ -352,6 +353,7 @@ for dir in "$XDG_DESKTOP_DIR" "$XDG_DOCUMENTS_DIR" "$XDG_DOWNLOAD_DIR" "$XDG_MUS
     mkdir -p "$dir"
 done
 mkdir -p "$XDG_PICTURES_DIR"/{screenshots,wallpapers}
+mkdir -p "$XDG_MUSIC_DIR"/playlists
 mkdir -p "$HOME/.local/state/mpd" "$HOME/.cache/mpd"
 print_success "desktop documents downloads music pictures public templates videos"
 
@@ -398,6 +400,23 @@ EOSECRETS
     chmod 600 "$HOME/.config/shell/secrets.sh"
     print_success "Secrets file created at ~/.config/shell/secrets.sh"
     print_warning "Please edit ~/.config/shell/secrets.sh and add your API keys"
+fi
+
+# ----------------------------------------------------------------------------
+# Flameshot config (generated)
+# ----------------------------------------------------------------------------
+# Flameshot validates savePath as an *existing absolute directory* and does not
+# expand "~" or "$HOME"; it also rewrites flameshot.ini itself, which would
+# clobber a stowed symlink. So the repo keeps a username-free template in
+# bootstrap/templates/ and we expand @HOME@ to the real path here.
+# An existing flameshot.ini is never overwritten.
+FLAMESHOT_TEMPLATE="$DOTFILES_DIR/bootstrap/templates/flameshot.ini"
+FLAMESHOT_CONF="$HOME/.config/flameshot/flameshot.ini"
+if [ -f "$FLAMESHOT_TEMPLATE" ] && [ ! -e "$FLAMESHOT_CONF" ]; then
+    print_status "Creating flameshot config..."
+    mkdir -p "$(dirname "$FLAMESHOT_CONF")"
+    sed "s|@HOME@|$HOME|g" "$FLAMESHOT_TEMPLATE" > "$FLAMESHOT_CONF"
+    print_success "flameshot config created at $FLAMESHOT_CONF"
 fi
 
 # ----------------------------------------------------------------------------
@@ -515,6 +534,10 @@ print_status "Enabling services..."
 systemctl --user enable --now pipewire pipewire-pulse wireplumber 2>/dev/null \
     || print_warning "Could not enable user audio services now; they will start on next login"
 
+# MPD user service (playlist_directory is ~/music/playlists, created above)
+systemctl --user enable --now mpd 2>/dev/null \
+    || print_warning "Could not enable mpd now; it will start on next login"
+
 # Don't fight an existing network stack: switching to NetworkManager while
 # systemd-networkd/dhcpcd/iwd manages the VM's NIC can kill the connection.
 if systemctl is-active --quiet systemd-networkd 2>/dev/null \
@@ -534,7 +557,51 @@ if $IS_VM; then
         oracle) sudo systemctl enable --now vboxservice.service 2>/dev/null || true ;;
         vmware) sudo systemctl enable --now vmtoolsd.service vmware-vmblock-fuse.service 2>/dev/null || true ;;
     esac
+else
+    # QEMU/libvirt host: virt-manager/virsh manage VMs (qemu-desktop, libvirt
+    # and friends come from packages-native.txt).
+    if command -v virsh &>/dev/null; then
+        print_status "Setting up QEMU/libvirt host..."
+        if ! id -nG "$(id -un)" | grep -qw libvirt; then
+            sudo usermod -aG libvirt "$(id -un)"
+            print_warning "Added $(id -un) to 'libvirt' group (re-login to use virsh without sudo)"
+        fi
+        sudo systemctl enable --now libvirtd.service 2>/dev/null \
+            || print_warning "Could not enable libvirtd now"
+        # Default NAT network. libvirt ships /etc/libvirt/qemu/networks/default.xml,
+        # so it is normally already defined; only autostart/start it.
+        if ! sudo virsh net-info default &>/dev/null; then
+            sudo virsh net-define /etc/libvirt/qemu/networks/default.xml 2>/dev/null || true
+        fi
+        sudo virsh net-autostart default 2>/dev/null || true
+        sudo virsh net-start default 2>/dev/null || true
+        print_success "QEMU/libvirt host configured"
+    fi
 fi
+
+# Btrfs snapshot integration (only meaningful on a btrfs root; this is what
+# grub-btrfsd + the snapper timers need to actually run)
+if [ "$(findmnt -no FSTYPE / 2>/dev/null)" = "btrfs" ]; then
+    if command -v snapper &>/dev/null && [ ! -f /etc/snapper/configs/root ]; then
+        sudo snapper -c root create-config / 2>/dev/null \
+            || print_warning "Could not create snapper root config"
+    fi
+    if [ -f /etc/snapper/configs/root ]; then
+        sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer 2>/dev/null \
+            || print_warning "Could not enable snapper timers"
+        sudo systemctl enable --now grub-btrfsd.service 2>/dev/null \
+            || print_warning "Could not enable grub-btrfsd"
+    fi
+fi
+
+# Tailscale
+sudo systemctl enable --now tailscaled 2>/dev/null \
+    || print_warning "Could not enable tailscaled now"
+
+# Tor
+sudo systemctl enable --now tor.service 2>/dev/null \
+    || print_warning "Could not enable tor now"
+
 print_success "Services configured"
 
 # ----------------------------------------------------------------------------
@@ -595,7 +662,7 @@ else
 fi
 echo "  5. Run 'startx' to start your X session"
 if $IS_VM && [[ "$VM_TYPE" == "kvm" || "$VM_TYPE" == "qemu" ]]; then
-    echo "  6. (QEMU) Add `spice-vdagent &` to ~/.xinitrc for clipboard sharing"
+    echo "  6. (QEMU) SPICE clipboard + auto-resize start automatically from ~/.xinitrc"
 fi
 echo ""
 print_status "Backup saved at: $BACKUP_DIR"

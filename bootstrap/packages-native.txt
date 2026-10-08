@@ -16,7 +16,6 @@ flameshot
 go
 grub
 grub-btrfs
-gvfs
 hsetroot
 htop
 imagemagick
@@ -51,7 +50,6 @@ pacman-contrib
 pass
 pipewire-alsa
 pipewire-jack
-polkit-gnome
 qemu-desktop
 reflector
 rmpc
@@ -60,7 +58,6 @@ stow
 sudo
 tailscale
 telegram-desktop
-thunar-volman
 tor
 vdpauinfo
 virt-manager

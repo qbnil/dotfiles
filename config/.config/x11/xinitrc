@@ -64,4 +64,11 @@ systemctl --user import-environment DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP &
 
 /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
 
+# SPICE guest: clipboard sharing + automatic display resize. The virtio port
+# only exists inside a QEMU/KVM guest with a SPICE display, so this is a no-op
+# on bare metal.
+if [ -e /dev/virtio-ports/com.redhat.spice.0 ] && command -v spice-vdagent >/dev/null 2>&1; then
+    spice-vdagent &
+fi
+
 exec vxwm
