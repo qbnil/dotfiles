@@ -168,7 +168,7 @@ print_success "Essential tools installed"
 # ----------------------------------------------------------------------------
 print_status "Installing build dependencies, X11 stack, fonts and base apps..."
 
-BUILD_DEPS=(libx11 libxft libxinerama libxrender libxcb fontconfig freetype2 imlib2 pkgconf zig)
+BUILD_DEPS=(libx11 libxft libxinerama libxrender libxcb libxcursor libxfixes fontconfig freetype2 imlib2 pkgconf zig)
 
 X_PKGS=(xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xrdb xorg-xset xorg-xprop
         xorg-xinput xorg-xev xf86-input-libinput xclip xdotool xcompmgr xwallpaper mesa)
@@ -284,6 +284,12 @@ stow_pkg() {
 # Scripts in local/.local/bin must be executable (stow symlinks to these files,
 # and zip/copy transfers can drop the mode bits).
 chmod +x "$DOTFILES_DIR"/local/.local/bin/* 2>/dev/null || true
+
+# Pre-create ~/.local/share/icons as a real directory. The cursor themes are
+# exposed there (libXcursor searches it first), and creating it up front stops
+# Stow from folding the whole dir into a symlink to the repo - otherwise tools
+# that write to ~/.local/share/icons would write straight into dotfiles.
+mkdir -p "$HOME/.local/share/icons"
 
 print_status "Deploying XDG files with GNU Stow..."
 cd "$DOTFILES_DIR"

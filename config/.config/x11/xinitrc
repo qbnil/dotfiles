@@ -21,8 +21,15 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 "$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
 cat "$XDG_CONFIG_HOME/x11/Xresources" \
     "$HOME/.cache/wal/colors.Xresources" \
-    "$HOME/.cache/wal/xrdb_extra" 2>/dev/null | xrdb -merge
-# ~/.config/vxpanel/startup.sh
+    "$HOME/.cache/wal/xrdb_extra" \
+    "$XDG_CONFIG_HOME/vxpanel/Xresources" 2>/dev/null | xrdb -merge
+
+# vxpanel's file is merged last so its choices (cursor theme, DPI, ...) win.
+# It has to land before `exec vxwm` because vxwm reads Xcursor.theme once at
+# startup to theme its own cursors and the desktop cursor.
+# Reapply vxpanel's command-type choices (xsettingsd, xrandr, ...) at login.
+# X-resource choices are handled above by merging vxpanel's Xresources.
+# [ -x "$HOME/.config/vxpanel/startup.sh" ] && "$HOME/.config/vxpanel/startup.sh" &
 
 zlstatus &
 

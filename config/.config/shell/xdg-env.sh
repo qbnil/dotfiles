@@ -47,7 +47,10 @@ export TERM="st"
 export TERMINAL="st"
 export MUSPLAYER="rmpc"
 export BROWSER="waterfox"
-export XCURSOR_THEME="phainon"
+
+# Cursor theme lives in ~/.config/x11/Xresources (Xcursor.theme) instead of
+# XCURSOR_THEME: the env var overrides the Xcursor.theme resource, which would
+# stop vxpanel's cursor changes from ever applying.
 
 # FZF
 export FZF_DEFAULT_OPTS="--style minimal --color 16 --layout=reverse --height 30% --preview='bat -p --color=always {}'"

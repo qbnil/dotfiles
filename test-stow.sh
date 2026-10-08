@@ -36,6 +36,7 @@ cat <<'TREE'
   ~/.config/                         -> config/.config/
   ~/.local/bin/                      -> local/.local/bin/
   ~/.local/share/honkai-star-rail-cursors -> local/.local/share/...
+  ~/.local/share/icons/              -> cursor themes (libXcursor search path)
   ~/.bashrc                          -> ~/.config/bash/bashrc
   ~/.bash_profile                    -> ~/.config/bash/bash_profile
   ~/.zshenv                          -> ~/.config/zsh/zshenv

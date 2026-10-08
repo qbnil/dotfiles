@@ -29,12 +29,6 @@ def cfg_set(k, v):
     os.makedirs(CONF_DIR, exist_ok=True)
     json.dump(CFG, open(CONF_DIR + "/config.json", "w"), indent=1)
 
-def xres_path():
-    """~/.Xresources, unless it is a symlink into pywal's cache (wal regenerates that file and would wipe our keys)."""
-    p = H + "/.Xresources"
-    if os.path.islink(p) or os.path.realpath(p).startswith(WAL_DIR): return VX_XRES
-    return p
-
 def persist(key, cmd):
     """Keep one line per key in startup.sh (cmd=None removes it)."""
     try: lines = open(STARTUP).read().splitlines()
@@ -626,24 +620,16 @@ def theme():
                 "Xft.antialias": int(aa.get_active()), "Xft.hintstyle": hs.get_active_text(),
                 "Xft.rgba": rg.get_active_text()}
         dpi_new = int(dpi.get_value()) if int(dpi.get_value()) != INIT["Xft.dpi"] else None
-        xp = xres_path()
+        xp = VX_XRES
         xall = dict(xnew)
         # cursor keys are always written; Xft keys only when you changed them (avoids overriding your font setup)
         xnew = {k: v for k, v in xnew.items() if not k.startswith("Xft.") or str(v) != str(INIT[k])}
         if xnew: kv_file(xp, xnew, "{k}: {v}", r"\s*{k}\s*:")
         INIT.update(xall)  # remember what is stored now, so switching back to an earlier value still gets written
 
-        # Apply X resources with cursor theme
+        # Apply X resources with cursor theme. There is nothing to persist in
+        # startup.sh: xinitrc merges ~/.config/vxpanel/Xresources at login.
         if os.path.exists(xp): sh(["xrdb", "-merge", xp])
-        persist("xres", ("xrdb -merge %s" % shlex.quote(xp)) if xp == VX_XRES and os.path.exists(xp) else None)
-        
-        # Force reload of cursor theme by setting XCURSOR_THEME env var and calling xsetroot
-        # This makes the X server pick up the new cursor theme for new windows
-        env = os.environ.copy()
-        env["XCURSOR_THEME"] = cr
-        env["XCURSOR_SIZE"] = str(size)
-        subprocess.run(["xsetroot", "-cursor_name", "left_ptr"], env=env,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         try:
             os.makedirs(H + "/.icons/default", exist_ok=True)
@@ -673,8 +659,23 @@ def theme():
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         live = xsettings_push(kv, dpi_new)
-        ncur = reload_cursors(cr, size)
-        persist("cursor", "XCURSOR_THEME=%s XCURSOR_SIZE=%d xsetroot -cursor_name left_ptr" % (shlex.quote(cr), size))
+
+        # Refresh the desktop/root cursor and re-image every named cursor in the
+        # running session. vxwm builds its bar/resize cursors with the legacy
+        # XCreateFontCursor, so only an XFixes pass gets them themed; and
+        # `xsetroot -cursor_name left_ptr` creates an unthemed core-font cursor.
+        # At login this is not needed: xinitrc already merged the theme into the
+        # X resources before vxwm started, and vxwm themes itself in setup().
+        ncur = 0
+        ct = H + "/.local/bin/cursor-theme"
+        if os.path.exists(ct):
+            try:
+                r = subprocess.run([ct, cr, str(size)], capture_output=True, text=True, timeout=10)
+                ncur = int((r.stdout or "0").strip() or 0)
+            except Exception:
+                ncur = 0
+        else:
+            ncur = reload_cursors(cr, size)
         msg = "✓ Applied: %s" % " | ".join(applied) if applied else "✓ Theme applied"
         if ncur: msg += " | cursor refreshed in open windows"
         env_t = os.environ.get("XCURSOR_THEME")
