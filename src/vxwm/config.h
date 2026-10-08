@@ -24,6 +24,9 @@ static const char *toggle_play[] = { "mpc", "toggle", NULL };
 static const char *cliphistadd[] = { "cliphist", "add", NULL };
 static const char *cliphistsel[] = { "cliphist", "sel", NULL };
 static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passmanager", NULL };
+static const char *opencode_cmd[] = { "st", "-e", "opencode", NULL };
+static const char *claude_cmd[] = { "st", "-e", "claude", NULL };
+
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
 /* Colours. If pywal has generated ~/.cache/wal/colors-wal-dwm.h (from the
@@ -194,6 +197,8 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_slash,  spawn,      {.v = cheatsheet} },
 	{ MODKEY,                       XK_p,      spawn,      {.v = powermenu} },
   { MODKEY|ShiftMask,             XK_p,      spawn,      {.v = passmanagercmd} },
+  { MODKEY|ShiftMask,             XK_o,      spawn,      {.v = opencode_cmd} },
+  { MODKEY|ShiftMask,             XK_c,      spawn,      {.v = claude_cmd} },
 	{ MODKEY,                       XK_b,      togglebar,      {0} },
 //	{ 0,				XKB_KEY_XF86AudioRaiseVolume, spawn, {.v = up_vol} },
 //	{ 0,				XKB_KEY_XF86AudioLowerVolume, spawn, {.v = down_vol} },
