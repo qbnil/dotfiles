@@ -154,6 +154,51 @@ Secrets belong in `~/.config/shell/secrets.sh`; this file is ignored by git.
 
 Wallpapers and screenshots are kept under `~/pictures/` rather than creating additional mixed-case directories or putting personal media into the dotfiles repository.
 
+## Colors, cursor and X resources
+
+There is intentionally **no `~/.Xresources`**: pywal owns `~/.cache/wal/colors.Xresources`,
+and `install.sh` removes any legacy `~/.Xresources` on purpose. Static X settings live in
+the tracked `~/.config/x11/Xresources`.
+
+X resources are merged in one canonical order, implemented **once** in
+`local/.local/bin/xrdb-reload` (deployed to `~/.local/bin/xrdb-reload`). Later files win:
+
+```text
+1. ~/.config/x11/Xresources          static Xft (DPI, antialias, hinting) + fallback cursor
+2. ~/.cache/wal/colors.Xresources    pywal palette
+3. ~/.cache/wal/xrdb_extra           dwm.color0 / dwm.color6 for vxwm
+4. ~/.config/vxpanel/Xresources      vxpanel's cursor theme / size  (merged LAST)
+```
+
+`xrdb-reload` first runs `wal-xrdb-extra` (which regenerates `xrdb_extra` from the palette),
+then merges all four sources. It is called by:
+
+- `xinitrc` at login, before `exec vxwm`;
+- `pywal16` (the `wal -o` hook) after every wallpaper change;
+- `rvx` in `reapply_colors()` on every WM restart.
+
+Because vxpanel's file is merged last, the cursor chosen in vxpanel survives a reboot, a
+wallpaper change and an `rvx` reload. vxpanel always writes that file to
+`~/.config/vxpanel/Xresources`; its other persisted settings go to
+`~/.config/vxpanel/startup.sh`, which `xinitrc` runs at login.
+
+Cursor themes live in `local/.local/share/honkai-star-rail-cursors/`. Since libXcursor only
+searches `~/.local/share/icons`, `~/.icons`, `/usr/share/icons` and `/usr/share/pixmaps`,
+`local/.local/share/icons/<theme>` contains relative symlinks into the collection.
+`install.sh` pre-creates `~/.local/share/icons` as a real directory so Stow links the themes
+into it instead of folding the whole directory into a symlink back to the repo.
+
+`XCURSOR_THEME` is deliberately **not** exported anywhere: the environment always wins over
+`Xcursor.theme`, so exporting it would make the session ignore xrdb and defeat this pipeline.
+
+To verify the live state:
+
+```sh
+~/.local/bin/xrdb-reload
+xrdb -query | grep -Ei 'Xcursor|Xft|dwm\.color'
+cat ~/.config/vxpanel/startup.sh
+```
+
 ## Backups and migration
 
 `install.sh` creates:
