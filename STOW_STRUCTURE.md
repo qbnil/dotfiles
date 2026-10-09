@@ -93,8 +93,7 @@ the default theme, and vxpanel cannot even list it.
 `local/.local/share/icons/<theme>` therefore contains relative symlinks to each
 usable Xcursor theme in the collection. Stow deploys them into
 `~/.local/share/icons/` - the first directory Xcursor searches - so the theme
-selected via `Xcursor.theme` (vxpanel merges it into the X resource database),
-GTK or `XCURSOR_THEME` actually resolves.
+named by `Xcursor.theme` actually resolves.
 
 `install.sh` pre-creates `~/.local/share/icons` as a real directory before
 stowing, so Stow links the themes *into* it instead of folding the whole
@@ -104,23 +103,11 @@ directory into a symlink back to the repo (which would make anything writing to
 `herta/` and `robin/` ship only Windows `.ani` files, so they are not Xcursor
 themes and are deliberately not linked.
 
-`Xcursor.theme` only covers applications that start *after* it is set. Two
-things are missed: the root (desktop) cursor, and vxwm's own bar/resize/move
-cursors, which are built with the legacy `XCreateFontCursor` API. vxwm links
-libXcursor/libXfixes and themes both itself, synchronously in `setup()` (see
-`theme_cursors()` in `src/vxwm/vxwm.c`), so nothing has to run after it at
-login.
-
-The chosen theme is stored as data in `~/.config/vxpanel/Xresources` - not in
-`startup.sh` and not in the tracked `config/.config/x11/Xresources` (that file is
-shared/versioned; the choice is per-machine runtime state). `xinitrc` merges the
-vxpanel file right after the tracked one, so `Xcursor.theme` (and `Xft.dpi`, ...)
-are in the X resource database before `exec vxwm` with no delay. When you change
-the theme live, vxpanel calls `local/.local/bin/cursor-theme` to refresh the
-running session (it loads the cursor through libXcursor, defines it on the root
-window, and re-images every named cursor server-side with `XFixes`). GTK apps
-are handled separately through `gtk-cursor-theme-name` via gsettings/xsettingsd,
-which is why vxpanel writes those too.
+The theme itself is set the plain way: vxpanel writes `Xcursor.theme` /
+`Xcursor.size` into `~/.config/vxpanel/Xresources` (plus `gtk-cursor-theme-name`
+for GTK apps), and the merge line in `xinitrc` applies it at login, so the choice
+survives a reboot. `XCURSOR_THEME` is deliberately not exported, because the
+environment always wins over `Xcursor.theme`.
 
 ## Stow commands
 

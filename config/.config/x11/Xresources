@@ -11,10 +11,9 @@ Xft.rgba:      rgb
 Xft.hintstyle: hintslight
 Xft.lcdfilter: lcddefault
 
-! --- Cursor (default; vxpanel writes its choice to
-!     ~/.config/vxpanel/Xresources, which xinitrc merges after this file) ---
-Xcursor.theme: Adwaita
-Xcursor.size:  24
+! --- Cursor (optional; override with xsetroot / xrdb from themes) ---
+! Xcursor.theme: Adwaita
+! Xcursor.size:  24
 
 ! --- st / xterm-style fallbacks (st also has its own config) ---
 ! *.font: JetBrainsMono Nerd Font:size=12

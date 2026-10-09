@@ -168,7 +168,7 @@ print_success "Essential tools installed"
 # ----------------------------------------------------------------------------
 print_status "Installing build dependencies, X11 stack, fonts and base apps..."
 
-BUILD_DEPS=(libx11 libxft libxinerama libxrender libxcb libxcursor libxfixes fontconfig freetype2 imlib2 pkgconf zig)
+BUILD_DEPS=(libx11 libxft libxinerama libxrender libxcb fontconfig freetype2 imlib2 pkgconf zig)
 
 X_PKGS=(xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xrdb xorg-xset xorg-xprop
         xorg-xinput xorg-xev xf86-input-libinput xclip xdotool xcompmgr xwallpaper mesa)
