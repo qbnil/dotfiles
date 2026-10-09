@@ -5,14 +5,53 @@ if [ $arg != "-h" ]; then
         echo "Run rvx -h for help"
 fi
 
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+# Refresh the X resources the (re)started vxwm will load in loadxrdb():
+# pywal colors (dwm.color* via wal-xrdb-extra) and vxpanel's cursor theme/DPI.
+# xrdb is a live X server property, so merging now guarantees the new WM picks
+# up the current colors; it is only a couple of file reads + xrdb.
+reapply_colors() {
+        "$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
+        cat "$XDG_CONFIG_HOME/x11/Xresources" \
+            "$HOME/.cache/wal/colors.Xresources" \
+            "$HOME/.cache/wal/xrdb_extra" \
+            "$XDG_CONFIG_HOME/vxpanel/Xresources" 2>/dev/null | xrdb -merge
+}
+
+# vxwm sets the desktop (root) cursor to a core cursor in setup(), so once the
+# new vxwm is up it must be re-themed. xsetroot reads Xcursor.theme from xrdb,
+# so this re-applies whatever cursor was last chosen. Detect the NEW vxwm by
+# polling _NET_SUPPORTING_WM_CHECK until its window id changes (the killed
+# WM's property may linger on the root).
+reapply_cursor() {
+        old="$(xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -o '0x[0-9a-f]*' | head -1)"
+        n=0
+        while [ "$n" -lt 100 ]; do
+                cur="$(xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -o '0x[0-9a-f]*' | head -1)"
+                if [ -n "$cur" ] && [ "$cur" != "$old" ]; then
+                        xsetroot -cursor_name left_ptr
+                        return 0
+                fi
+                sleep 0.1
+                n=$((n + 1))
+        done
+}
+
 if [ $arg = "-d" ]; then
         killall vxwm 2>/dev/null
-        dbus-run-session vxwm -ignoreautostart
+        reapply_colors
+        dbus-run-session vxwm -ignoreautostart &
+        reapply_cursor
+        wait
 elif [ $arg = "-h" ]; then
         echo "rvx:                A tool designed for quickly restarting vxwm"
         echo "rvx -d:             Restarts vxwm with dbus-run-session"
         echo "rvx -h:             Show this message"
 else
         killall vxwm 2>/dev/null
-        vxwm -ignoreautostart
+        reapply_colors
+        vxwm -ignoreautostart &
+        reapply_cursor
+        wait
 fi
