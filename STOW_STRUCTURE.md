@@ -109,6 +109,17 @@ for GTK apps), and the merge line in `xinitrc` applies it at login, so the choic
 survives a reboot. `XCURSOR_THEME` is deliberately not exported, because the
 environment always wins over `Xcursor.theme`.
 
+That resource only reaches apps that opt in. vxwm's own cursors (bar, move,
+resize) and the desktop/root cursor are built with the legacy
+`XCreateFontCursor` API, which always returns the unthemed core-font cursor, and
+vxwm re-applies them on every `setup()` - so a `rvx` or a fresh session used to
+snap the desktop cursor back to the default. `theme_cursors()` in
+`src/vxwm/vxwm.c` re-images them from the selected theme with
+`XFixesChangeCursorByName` (which targets cursor-font cursors by name) and then
+`XDefineCursor`s the themed `left_ptr` on the root window, all synchronously in
+`setup()`. No helper process and no xinitrc code are involved; vxpanel runs the
+same XFixes call when the theme is changed live.
+
 ## Stow commands
 
 ```bash

@@ -23,6 +23,8 @@ From this moment, i'll try to comment the code and also make it more readable.
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <X11/cursorfont.h>
+#include <X11/extensions/Xfixes.h>
+#include <X11/Xcursor/Xcursor.h>
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
@@ -2079,6 +2081,36 @@ setmfact(const Arg *arg)
 	arrange(selmon);
 }
 
+/* Re-image our cursors from the Xcursor theme.
+ *
+ * The cursors are created with the legacy XCreateFontCursor API, which always
+ * returns the core-font cursor and ignores the theme. XFixesChangeCursorByName
+ * swaps the image of every cursor with a given name server-side, which themes
+ * ours (bar, resize, move) without an extra helper process or a startup delay.
+ * vxpanel re-runs the same thing when the theme is changed at runtime. */
+static void
+theme_cursors(void)
+{
+	static const char *names[] = {
+		"left_ptr", "sizing", "fleur",
+		"top_left_corner", "top_right_corner",
+		"bottom_left_corner", "bottom_right_corner",
+		"top_side", "bottom_side", "right_side", "left_side",
+	};
+	int i, ev, er;
+
+	if (!XFixesQueryExtension(dpy, &ev, &er))
+		return;
+
+	for (i = 0; i < (int)LENGTH(names); i++) {
+		Cursor c = XcursorLibraryLoadCursor(dpy, names[i]);
+		if (c) {
+			XFixesChangeCursorByName(dpy, c, names[i]);
+			XFreeCursor(dpy, c);
+		}
+	}
+}
+
 void
 setup(void)
 {
@@ -2156,6 +2188,10 @@ setup(void)
   cursor[CurE]  = drw_cur_create(drw, XC_right_side);
   cursor[CurW]  = drw_cur_create(drw, XC_left_side);
 #endif
+	/* theme the cursors above (they start as unthemed core-font cursors) and
+	 * use the themed normal cursor for the desktop/root window as well */
+	theme_cursors();
+	XDefineCursor(dpy, root, cursor[CurNormal]->cursor);
 	/* init appearance */
 	scheme = ecalloc(LENGTH(colors), sizeof(Clr *));
 	for (i = 0; i < LENGTH(colors); i++)
