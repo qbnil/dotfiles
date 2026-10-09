@@ -1,7 +1,7 @@
 #!/bin/sh
 arg="$1"
 
-if [ $arg != "-h" ]; then
+if [ "$arg" != "-h" ]; then
         echo "Run rvx -h for help"
 fi
 
@@ -38,13 +38,13 @@ reapply_cursor() {
         done
 }
 
-if [ $arg = "-d" ]; then
+if [ "$arg" = "-d" ]; then
         killall vxwm 2>/dev/null
         reapply_colors
         dbus-run-session vxwm -ignoreautostart &
         reapply_cursor
         wait
-elif [ $arg = "-h" ]; then
+elif [ "$arg" = "-h" ]; then
         echo "rvx:                A tool designed for quickly restarting vxwm"
         echo "rvx -d:             Restarts vxwm with dbus-run-session"
         echo "rvx -h:             Show this message"
