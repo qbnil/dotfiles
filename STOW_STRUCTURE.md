@@ -61,7 +61,7 @@ The intended result is deliberately boring:
 
 `~/.bashrc`, `~/.bash_profile`, `~/.zshenv` and `~/.xinitrc` are compatibility entrypoints required by their respective programs. Their actual configuration remains under `~/.config`.
 
-There is intentionally **no `~/.Xresources`**. The tracked Xresources file is `~/.config/x11/Xresources`; pywal updates that XDG path directly.
+There is intentionally **no `~/.Xresources`**. Static X settings (fonts, DPI, fallback cursor) live in `~/.config/x11/Xresources`; pywal keeps its palette in `~/.cache/wal/colors.Xresources` and it is merged on top at login.
 
 ## Lowercase XDG directories
 
@@ -105,9 +105,13 @@ themes and are deliberately not linked.
 
 The theme itself is set the plain way: vxpanel writes `Xcursor.theme` /
 `Xcursor.size` into `~/.config/vxpanel/Xresources` (plus `gtk-cursor-theme-name`
-for GTK apps), and the merge line in `xinitrc` applies it at login, so the choice
-survives a reboot. `XCURSOR_THEME` is deliberately not exported, because the
-environment always wins over `Xcursor.theme`.
+for GTK apps). `~/.local/bin/xrdb-reload` merges every Xresources source in one
+canonical order - `~/.config/x11/Xresources`, the pywal palette, `xrdb_extra` and
+finally vxpanel's file - and is called by `xinitrc` at login, `rvx` on a WM
+restart and `pywal16` after a wallpaper change. Because vxpanel is always merged
+last, the cursor choice survives a reboot, a session reload and a colour change.
+`XCURSOR_THEME` is deliberately not exported, because the environment always wins
+over `Xcursor.theme`.
 
 ## Stow commands
 

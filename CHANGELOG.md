@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Cursor theme and pywal colours now survive reboot, `rvx` and wallpaper changes:
+  - `vxpanel` always writes its cursor/DPI to `~/.config/vxpanel/Xresources` instead of depending on `~/.Xresources` being a pywal symlink (which `install.sh` removes).
+  - New `~/.local/bin/xrdb-reload` merges the Xresources sources in one place (`x11/Xresources`, the pywal palette, `xrdb_extra`, then vxpanel last) and is now called by `xinitrc`, `rvx` and `pywal16`, so the cursor theme is never reset by a wallpaper change or WM restart.
+  - `xinitrc` now runs `~/.config/vxpanel/startup.sh` (backgrounded, no-op until it exists), so every setting vxpanel saves there also persists across reboots.
+- Removed committed `local/.local/bin/__pycache__` and added `local/.stow-local-ignore` so Stow never deploys Python bytecode.
+
 - Added `~/.config/user-dirs.dirs` with lowercase paths (`XDG_DOWNLOAD_DIR=$HOME/downloads`, ...). Apps only honour these standard variables, so browser downloads and file dialogs now use `~/downloads`.
 - Added `~/.config/user-dirs.conf` (`enabled=False`) so `xdg-user-dirs-update` never recreates `~/Downloads`.
 - `shell/xdg-env.sh` now sources `user-dirs.dirs` and exports the `XDG_*_DIR` variables, replacing the unused `DOWNLOADS_DIR`-style ones.

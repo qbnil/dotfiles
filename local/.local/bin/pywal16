@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Immediate color update (fast path)
-"$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
-cat "$XRESOURCES" "$HOME/.cache/wal/colors.Xresources" "$HOME/.cache/wal/xrdb_extra" 2>/dev/null | xrdb -merge
+# wal hook (wal -o): re-merge the Xresources sources so the running session picks
+# up the new palette immediately. xrdb-reload keeps vxpanel's cursor/DPI last, so
+# a wallpaper change never resets the cursor theme chosen in vxpanel.
+"$HOME/.local/bin/xrdb-reload"
 # Trigger xrdb refresh for terminals/applications that listen to it
 xdotool key super+F5 &
 # Force wallpaper redraw with xcompmgr-friendly approach

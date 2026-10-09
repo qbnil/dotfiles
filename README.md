@@ -49,7 +49,7 @@ The home directories are real lowercase directories created by `install.sh`. The
 
 The four dotfiles in `$HOME` are compatibility entrypoints required by Bash, Zsh and `startx`; their actual contents live in `~/.config`.
 
-There is no `~/.Xresources`. The tracked Xresources file is `~/.config/x11/Xresources`, and the pywal helper updates that XDG path.
+There is no `~/.Xresources`. Static X settings live in the tracked `~/.config/x11/Xresources`; pywal's palette is merged from `~/.cache/wal/colors.Xresources` at login and on every wallpaper change.
 
 ## Installation
 

@@ -13,20 +13,11 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # xrandr --output HDMI-0 --mode 1920x1080 --rate 240 --primary
 # hsetroot -cover "$XDG_PICTURES_DIR/wallpapers/example.jpg"
 
-# Kept synchronous: if vxwm or its bar read colors/fonts from Xresources at
-# startup, this needs to land before `exec vxwm`. No Python involved - just
-# reading the cache files your wallpaper-setter script already wrote last
-# time you changed wallpaper, so this is a couple of file reads + xrdb,
-# single-digit ms even on battery.
-#
-# wal-xrdb-extra regenerates ~/.cache/wal/xrdb_extra (the dwm.color* values
-# vxwm reads); without it the WM falls back to its compiled-in colours.
-# vxpanel's file is merged last so its cursor theme / DPI win over wal.
-"$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
-cat "$XDG_CONFIG_HOME/x11/Xresources" \
-    "$HOME/.cache/wal/colors.Xresources" \
-    "$HOME/.cache/wal/xrdb_extra" \
-    "$XDG_CONFIG_HOME/vxpanel/Xresources" 2>/dev/null | xrdb -merge
+# Kept synchronous: vxwm reads dwm.color* from Xresources at startup, so this
+# has to land before `exec vxwm`. xrdb-reload regenerates ~/.cache/wal/xrdb_extra
+# and merges every source (static Xft, pywal palette, vxpanel cursor last) - the
+# shared helper xinitrc, rvx and pywal16 all use, so the order never drifts.
+"$HOME/.local/bin/xrdb-reload"
 
 zlstatus &
 
@@ -49,9 +40,15 @@ fi
 # wal -i "$IMG"
 
 setxkbmap -layout us,ru -option "grp:win_space_toggle" &
-xsettingsd &
+pgrep -x xsettingsd >/dev/null || xsettingsd &
 dunst &
 flameshot &
+
+# vxpanel persists the settings X forgets on restart (monitor layout, key repeat,
+# pointer, compositor, night light, ...) to startup.sh. Run it here so those
+# choices - like the cursor theme - survive a reboot. It is a no-op until vxpanel
+# has written the file, and the pgrep above stops a second xsettingsd.
+[ -x "$HOME/.config/vxpanel/startup.sh" ] && "$HOME/.config/vxpanel/startup.sh" &
 
 # xcompmgr -c -C -f -F -I 0.03 -O 0.03 -D 5 &
 # Start compositor after wallpaper is set so it sees _XROOTPMAP_ID.

@@ -30,10 +30,10 @@ def cfg_set(k, v):
     json.dump(CFG, open(CONF_DIR + "/config.json", "w"), indent=1)
 
 def xres_path():
-    """~/.Xresources, unless it is a symlink into pywal's cache (wal regenerates that file and would wipe our keys)."""
-    p = H + "/.Xresources"
-    if os.path.islink(p) or os.path.realpath(p).startswith(WAL_DIR): return VX_XRES
-    return p
+    """vxpanel's own Xresources. Always the XDG path: ~/.Xresources belongs to pywal
+    (it is a symlink into ~/.cache/wal and is regenerated on every wallpaper change),
+    so writing there would either be wiped or never merged at login."""
+    return VX_XRES
 
 def persist(key, cmd):
     """Keep one line per key in startup.sh (cmd=None removes it)."""
@@ -382,16 +382,13 @@ def colors():
     c.pack_start(fb, False, False, 0)
 
     def after():
-        # same sequence as a typical pywal hook: merge every Xresources source, poke the WM, repaint, run extras
-        seen, files = set(), []
-        for f in (H + "/.Xresources", WAL_DIR + "/colors.Xresources", WAL_DIR + "/xrdb_extra", VX_XRES):
-            r = os.path.realpath(f)
-            if os.path.exists(f) and r not in seen: seen.add(r); files.append(f)
-        steps = ["cat %s | xrdb -merge" % " ".join(shlex.quote(f) for f in files)] if files else []
+        # xrdb-reload merges every Xresources source in the canonical order
+        # (vxpanel's cursor last); then poke the WM, repaint and run extras.
+        steps = [shlex.quote(H + "/.local/bin/xrdb-reload")]
         key = CFG.get("reload_key", "super+F5")
         if key and have("xdotool"): steps += ["sleep 0.1", "xdotool key %s" % shlex.quote(key)]
         if have("xrefresh"): steps.append("xrefresh")
-        if steps: run("; ".join(steps), "Colors reloaded (xrdb, WM, repaint)")
+        run("; ".join(steps), "Colors reloaded (xrdb, WM, repaint)")
         if CFG.get("post"): bg(CFG["post"])
     def wal_cmd(cmd):
         """Same call as a wallpaper-menu script: wal -i FILE -o HOOK. With a hook, wal itself runs it
@@ -871,10 +868,8 @@ def system():
            power("Shut down", ["systemctl", "poweroff"]))
 
     c = card(b, "Persistence")
-    c.pack_start(Gtk.Label(label="Settings X forgets on restart (monitors, keyboard, pointer, compositor, night light…) are saved to\n%s\nAdd this line to your autostart:" % STARTUP, xalign=0), False, False, 0)
-    line = "~/.config/vxpanel/startup.sh &"
-    e = Gtk.Entry(text=line); e.set_editable(False); c.pack_start(e, False, False, 0)
-    btnrow(c, btn("Copy line", lambda: copy(line)), btn("Open startup.sh", lambda: bg(["xdg-open", STARTUP])))
+    c.pack_start(Gtk.Label(label="Settings X forgets on restart (monitors, keyboard, pointer, compositor, night light…) are saved to\n%s\nand applied automatically at login by xinitrc." % STARTUP, xalign=0), False, False, 0)
+    btnrow(c, btn("Open startup.sh", lambda: bg(["xdg-open", STARTUP])))
     return b
 
 # ---------------------------------------------------------------- Window

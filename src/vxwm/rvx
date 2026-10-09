@@ -5,18 +5,12 @@ if [ "$arg" != "-h" ]; then
         echo "Run rvx -h for help"
 fi
 
-XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-
 # Refresh the X resources the (re)started vxwm will load in loadxrdb():
-# pywal colors (dwm.color* via wal-xrdb-extra) and vxpanel's cursor theme/DPI.
-# xrdb is a live X server property, so merging now guarantees the new WM picks
-# up the current colors; it is only a couple of file reads + xrdb.
+# pywal colours and vxpanel's cursor theme/DPI. xrdb is a live X server property,
+# so merging now guarantees the new WM picks up the current values. xrdb-reload
+# is the shared helper (same order as xinitrc and pywal16).
 reapply_colors() {
-        "$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
-        cat "$XDG_CONFIG_HOME/x11/Xresources" \
-            "$HOME/.cache/wal/colors.Xresources" \
-            "$HOME/.cache/wal/xrdb_extra" \
-            "$XDG_CONFIG_HOME/vxpanel/Xresources" 2>/dev/null | xrdb -merge
+        "$HOME/.local/bin/xrdb-reload"
 }
 
 # vxwm sets the desktop (root) cursor to a core cursor in setup(), so once the
