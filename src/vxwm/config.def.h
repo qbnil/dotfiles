@@ -103,11 +103,6 @@ static const Layout layouts[] = {
   { "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[]=",      tile },    /* first entry is default */
 	{ "[M]",      monocle },
-#if EXTRA_LAYOUTS
-	{ "TTT",      bstack },
-	{ "|M|",      centeredmaster },
-	{ "[D]",      deck },
-#endif
 };
 
 /* key definitions */
@@ -163,18 +158,6 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
 	{ MODKEY|ShiftMask,             XK_period, tagmon,         {.i = +1 } },
-#if SHIFTVIEW
-	{ MODKEY,                       XK_Left,   shiftview,      {.i = -1 } },
-	{ MODKEY,                       XK_Right,  shiftview,      {.i = +1 } },
-#endif
-#if LAYOUT_CYCLE
-	{ MODKEY|ControlMask,           XK_comma,  cyclelayout,    {.i = -1 } },
-	{ MODKEY|ControlMask,           XK_period, cyclelayout,    {.i = +1 } },
-#endif
-#if MOVESTACK
-	{ MODKEY|ControlMask,           XK_j,      movestack,      {.i = +1 } },
-	{ MODKEY|ControlMask,           XK_k,      movestack,      {.i = -1 } },
-#endif
 	TAGKEYS(                        XK_1,                      0)
 	TAGKEYS(                        XK_2,                      1)
 	TAGKEYS(                        XK_3,                      2)
