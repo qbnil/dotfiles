@@ -13,9 +13,9 @@ static const char *fonts[] = {
 //    "Noto Color Emoji:size=10"
 };
 static const char dmenufont[]       = "JetBrainsMono Nerd Font:size=12";
-static const char *up_vol[]   = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"};
-static const char *down_vol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"};
-static const char *mute_vol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"};
+static const char *up_vol[]   = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+", NULL};
+static const char *down_vol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-", NULL};
+static const char *mute_vol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle", NULL};
 static const char *screenshotcmd[] = { "flameshot", "gui", NULL };
 static const char *next_song[] = { "mpc", "next", NULL };
 static const char *prev_song[] = { "mpc", "prev", NULL };
@@ -27,6 +27,9 @@ static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passma
 static const char *opencode_cmd[] = { "st", "-e", "opencode", NULL };
 static const char *claude_cmd[] = { "st", "-e", "claude", NULL };
 static const char *tailscaletoggle[] = { "tailscaletoggle", NULL };
+/* Needs `brightnessctl` (and your user in the `video` group or its udev rule). */
+static const char *bright_up[]   = { "brightnessctl", "-q", "set", "5%+", NULL };
+static const char *bright_down[] = { "brightnessctl", "-q", "set", "5%-", NULL };
 
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
@@ -90,10 +93,13 @@ static const int right_sidepad = 3;        /* right horizontal padding of bar */
 #endif
 
 /* tagging */
-static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+/* Nerd Font icons (set in `fonts[]` above). A tag shows a hollow circle while empty and its own
+ * icon as soon as it holds a window (needs OCCUPIED_TAGS_DECORATION 1 in modules.h):
+ *   1 terminal  2 browser  3 code  4 files  5 chat  6 music  7 video  8 reading  9 settings */
+static const char *tags[] = { "", "", "", "", "", "", "", "", "" };
 
 #if OCCUPIED_TAGS_DECORATION
-static const char *occupiedtags[] = { "1+", "2+", "3+", "4+", "5+", "6+", "7+", "8+", "9+" };
+static const char *occupiedtags[] = { "", "", "", "", "", "", "", "", "" };
 #endif
 
 #if INFINITE_TAGS
@@ -155,6 +161,11 @@ static const Layout layouts[] = {
 	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[M]",      monocle },
   { "[G]",      grid },
+#if EXTRA_LAYOUTS
+  { "TTT",      bstack },
+  { "|M|",      centeredmaster },
+  { "[D]",      deck },
+#endif
 };
 
 /* key definitions */
@@ -208,6 +219,8 @@ static const Key keys[] = {
 	{ 0, 				XF86XK_AudioRaiseVolume, spawn, {.v = up_vol} },
 	{ 0, 				XF86XK_AudioLowerVolume, spawn, {.v = down_vol} },
 	{ 0, 				XF86XK_AudioMute,        spawn, {.v = mute_vol} },
+	{ 0, 				XF86XK_MonBrightnessUp,   spawn, {.v = bright_up} },
+	{ 0, 				XF86XK_MonBrightnessDown, spawn, {.v = bright_down} },
 	{ MODKEY, 			XK_c, spawn, {.v = cliphistadd } },
 	{ MODKEY, 			XK_v, spawn, {.v = cliphistsel } },
 	{ MODKEY,			XK_bracketleft, spawn, {.v = prev_song} },
@@ -235,6 +248,18 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
 	{ MODKEY|ShiftMask,             XK_period, tagmon,         {.i = +1 } },
+#if SHIFTVIEW
+	{ MODKEY,                       XK_Left,   shiftview,      {.i = -1 } },
+	{ MODKEY,                       XK_Right,  shiftview,      {.i = +1 } },
+#endif
+#if LAYOUT_CYCLE
+	{ MODKEY|ControlMask,           XK_comma,  cyclelayout,    {.i = -1 } },
+	{ MODKEY|ControlMask,           XK_period, cyclelayout,    {.i = +1 } },
+#endif
+#if MOVESTACK
+	{ MODKEY|ControlMask,           XK_j,      movestack,      {.i = +1 } },
+	{ MODKEY|ControlMask,           XK_k,      movestack,      {.i = -1 } },
+#endif
 	{ MODKEY|ShiftMask,             XK_s,      spawn,          {.v = screenshotcmd } },
 	TAGKEYS(                        XK_1,                      0)
 	TAGKEYS(                        XK_2,                      1)

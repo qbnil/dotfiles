@@ -18,6 +18,7 @@ Super+c                    add clipboard entry (cliphist add)
 Super+v                    paste from clipboard (cliphist sel)
 Super+/                    cheatsheet
 Super+Shift+s              screenshot (flameshot gui)
+XF86MonBrightnessUp/Down   brightness +/- 5% (brightnessctl)
 
 ── music (rmpc/mpd) ──
 Super+[                    previous song (mpc)
@@ -59,6 +60,7 @@ C-h/j/k/l                  move between panes (rmpc)
 ── window ──
 Super+q                    close window (killclient)
 Super+Shift+Return         swap master
+Super+Ctrl+j / k           move window down/up the stack, works in every layout (MOVESTACK)
 Super+Ctrl+h / l           shrink / grow master (setmfact)
 Super+i / o                more / fewer masters (incnmaster)
 Super+e                    toggle floating enhanced (ENHANCED_TOGGLE_FLOATING)
@@ -77,6 +79,7 @@ Super+t                    tiled layout
 Super+f                    floating layout
 Super+m                    monocle layout
 Super+g                    grid layout
+Super+Ctrl+, / .           previous / next tiling layout (LAYOUT_CYCLE: tile, monocle, grid, TTT, |M|, deck)
 Super+- / =                gaps decrease / increase (GAPS)
 Super+Shift+=              gaps reset (GAPS)
 Super+F5                   reload xresources / pywal colors (XRDB)
@@ -87,6 +90,7 @@ Super+1…9                  view tag
 Super+Shift+1…9            move window to tag
 Super+Ctrl+1…9             toggle tag in view
 Super+Ctrl+Shift+1…9       toggle tag on window
+Super+Left / Right         previous / next tag, wraps around (SHIFTVIEW)
 Super+0                    view all tags
 Super+Tab                  view all tags
 Super+Shift+0              tag window on all tags

@@ -67,3 +67,5 @@
 #if OPACITY
 #include "opacity/opacity.c"
 #endif
+
+#include "extras/extras.c"

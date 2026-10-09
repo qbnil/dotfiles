@@ -61,7 +61,7 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 #define ALT_CENTER_OF_BAR_COLOR 1 // changes center of bar color to a dark color.
 #define BAR_HEIGHT 1 // Support for changing bar height.
 #define BAR_PADDING 1 // Support for changing the bar padding.
-#define OCCUPIED_TAGS_DECORATION 0 // This provides the ability to use an alternative text for tags which contain at least one window aka occupied tags.
+#define OCCUPIED_TAGS_DECORATION 1 // This provides the ability to use an alternative text for tags which contain at least one window aka occupied tags.
 
 /* External */
 #define EXTERNAL_BARS 1 // Support for external bars, essencial if you want to use external bars.
@@ -150,6 +150,14 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
   { ALTERNATE_MODKEY|ShiftMask,   XK_r,      resetopacity,       {0} },
 #endif
 */
+
+
+
+/* Ideas ported from chadwm */
+#define EXTRA_LAYOUTS 1 // bstack (TTT), centeredmaster (|M|) and deck (D) layouts.
+#define LAYOUT_CYCLE 1  // cyclelayout: step through the tiling layouts (floating is skipped).
+#define SHIFTVIEW 1     // shiftview: previous/next tag, wrapping around.
+#define MOVESTACK 1     // movestack: swap the focused tiled window up/down the stack, any layout.
 
 
 
