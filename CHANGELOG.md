@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- vxwm: features borrowed from [chadwm](https://github.com/siduck/chadwm), as a new `modules/extras` module with its own switches in `modules.h`:
+  - `EXTRA_LAYOUTS`: bottom stack `TTT`, centered master `|M|` and deck `[D]`, appended after the existing four layouts so `layouts[0..3]` keep their meaning. All of them honour `gappx`, `mfact` and `nmaster`.
+  - `LAYOUT_CYCLE`: `Super+Ctrl+,` / `Super+Ctrl+.` steps through the tiling layouts (floating is skipped; it keeps its own bind).
+  - `SHIFTVIEW`: `Super+Left` / `Super+Right` move to the previous/next tag and wrap around.
+  - `MOVESTACK`: `Super+Ctrl+j` / `Super+Ctrl+k` swap the focused tiled window up/down the stack in any layout (`movedir` only works in `tile`).
+  - Brightness keys (`XF86MonBrightnessUp/Down`) call `brightnessctl set 5%+/5%-`; `brightnessctl` added to `bootstrap/packages-native.txt`.
+- vxwm fix: `up_vol`, `down_vol` and `mute_vol` were not NULL-terminated, but `spawn()` hands them to `execvp()`, which reads until NULL (undefined behaviour). They are terminated now.
+- Cheatsheet (`Super+/`) lists the new binds.
+
 - Cursor theme and pywal colours now survive reboot, `rvx` and wallpaper changes:
   - `vxpanel` always writes its cursor/DPI to `~/.config/vxpanel/Xresources` instead of depending on `~/.Xresources` being a pywal symlink (which `install.sh` removes).
   - New `~/.local/bin/xrdb-reload` merges the Xresources sources in one place (`x11/Xresources`, the pywal palette, `xrdb_extra`, then vxpanel last) and is now called by `xinitrc`, `rvx` and `pywal16`, so the cursor theme is never reset by a wallpaper change or WM restart.

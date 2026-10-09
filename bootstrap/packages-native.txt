@@ -2,6 +2,7 @@ alsa-utils
 aria2
 base
 bc
+brightnessctl
 btop
 btrfs-progs
 calligra

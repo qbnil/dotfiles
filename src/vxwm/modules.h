@@ -153,6 +153,14 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 
 
 
+/* Ideas ported from chadwm */
+#define EXTRA_LAYOUTS 1 // bstack (TTT), centeredmaster (|M|) and deck (D) layouts.
+#define LAYOUT_CYCLE 1  // cyclelayout: step through the tiling layouts (floating is skipped).
+#define SHIFTVIEW 1     // shiftview: previous/next tag, wrapping around.
+#define MOVESTACK 1     // movestack: swap the focused tiled window up/down the stack, any layout.
+
+
+
 /* Dependency list */
 /* INFINITE_TAGS requires WINDOWMAP, please set WINDOWMAP to 1, if not, it will be automatically enabled.
  * ENHANCED_TOGGLE_FLOATING requires FLOATING_LAYOUT_FLOATS_WINDOWS, please set FLOATING_LAYOUT_FLOATS_WINDOWS to 1, if not, it will be automatically enabled.  */

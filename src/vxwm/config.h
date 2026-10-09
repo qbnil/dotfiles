@@ -13,9 +13,9 @@ static const char *fonts[] = {
 //    "Noto Color Emoji:size=10"
 };
 static const char dmenufont[]       = "JetBrainsMono Nerd Font:size=12";
-static const char *up_vol[]   = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"};
-static const char *down_vol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"};
-static const char *mute_vol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"};
+static const char *up_vol[]   = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+", NULL};
+static const char *down_vol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-", NULL};
+static const char *mute_vol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle", NULL};
 static const char *screenshotcmd[] = { "flameshot", "gui", NULL };
 static const char *next_song[] = { "mpc", "next", NULL };
 static const char *prev_song[] = { "mpc", "prev", NULL };
@@ -27,6 +27,9 @@ static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passma
 static const char *opencode_cmd[] = { "st", "-e", "opencode", NULL };
 static const char *claude_cmd[] = { "st", "-e", "claude", NULL };
 static const char *tailscaletoggle[] = { "tailscaletoggle", NULL };
+/* Needs `brightnessctl` (and your user in the `video` group or its udev rule). */
+static const char *bright_up[]   = { "brightnessctl", "-q", "set", "5%+", NULL };
+static const char *bright_down[] = { "brightnessctl", "-q", "set", "5%-", NULL };
 
 #define COORDINATES_STYLE "[x%d y%d]" /* The style of coordinates displayed in bar, do not remove %d. */
 
@@ -155,6 +158,11 @@ static const Layout layouts[] = {
 	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[M]",      monocle },
   { "[G]",      grid },
+#if EXTRA_LAYOUTS
+  { "TTT",      bstack },
+  { "|M|",      centeredmaster },
+  { "[D]",      deck },
+#endif
 };
 
 /* key definitions */
@@ -208,6 +216,8 @@ static const Key keys[] = {
 	{ 0, 				XF86XK_AudioRaiseVolume, spawn, {.v = up_vol} },
 	{ 0, 				XF86XK_AudioLowerVolume, spawn, {.v = down_vol} },
 	{ 0, 				XF86XK_AudioMute,        spawn, {.v = mute_vol} },
+	{ 0, 				XF86XK_MonBrightnessUp,   spawn, {.v = bright_up} },
+	{ 0, 				XF86XK_MonBrightnessDown, spawn, {.v = bright_down} },
 	{ MODKEY, 			XK_c, spawn, {.v = cliphistadd } },
 	{ MODKEY, 			XK_v, spawn, {.v = cliphistsel } },
 	{ MODKEY,			XK_bracketleft, spawn, {.v = prev_song} },
@@ -235,6 +245,18 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
 	{ MODKEY|ShiftMask,             XK_period, tagmon,         {.i = +1 } },
+#if SHIFTVIEW
+	{ MODKEY,                       XK_Left,   shiftview,      {.i = -1 } },
+	{ MODKEY,                       XK_Right,  shiftview,      {.i = +1 } },
+#endif
+#if LAYOUT_CYCLE
+	{ MODKEY|ControlMask,           XK_comma,  cyclelayout,    {.i = -1 } },
+	{ MODKEY|ControlMask,           XK_period, cyclelayout,    {.i = +1 } },
+#endif
+#if MOVESTACK
+	{ MODKEY|ControlMask,           XK_j,      movestack,      {.i = +1 } },
+	{ MODKEY|ControlMask,           XK_k,      movestack,      {.i = -1 } },
+#endif
 	{ MODKEY|ShiftMask,             XK_s,      spawn,          {.v = screenshotcmd } },
 	TAGKEYS(                        XK_1,                      0)
 	TAGKEYS(                        XK_2,                      1)
@@ -298,15 +320,15 @@ static const Key keys[] = {
 #endif
 #if OPACITY
   /* global toggle: all windows opaque, or back to per-focus values */
-  { ALTERNATE_MODKEY,             XK_o,      toggleopacity,      {0} },
+  { MODKEY,                       XK_o,      toggleopacity,      {0} },
   /* focused window opacity, +/- 5% per press */
-  { ALTERNATE_MODKEY|ShiftMask,   XK_Up,     incopacity,         {.i = +1 } },
-  { ALTERNATE_MODKEY|ShiftMask,   XK_Down,   incopacity,         {.i = -1 } },
+  { MODKEY|ShiftMask,             XK_Up,     incopacity,         {.i = +1 } },
+  { MODKEY|ShiftMask,             XK_Down,   incopacity,         {.i = -1 } },
   /* unfocused default opacity, +/- 5% per press */
-  { ALTERNATE_MODKEY|ControlMask, XK_Up,     incopacityunfocused,{.i = +1 } },
-  { ALTERNATE_MODKEY|ControlMask, XK_Down,   incopacityunfocused,{.i = -1 } },
+  { MODKEY|ControlMask,           XK_Up,     incopacityunfocused,{.i = +1 } },
+  { MODKEY|ControlMask,           XK_Down,   incopacityunfocused,{.i = -1 } },
   /* drop this window's override, back to the global default */
-  { ALTERNATE_MODKEY|ShiftMask|ControlMask, XK_r, resetopacity,   {0} },
+  { MODKEY|ShiftMask|ControlMask, XK_r, resetopacity,   {0} },
 #endif
 };
 
