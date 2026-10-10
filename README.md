@@ -119,6 +119,35 @@ zig build -Dmode=X11 -Doptimize=ReleaseSmall
 install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 ```
 
+## Window management features (vxwm)
+
+`src/vxwm` carries a set of hand-rolled window management features on top of upstream dwm:
+
+| Feature | Keys | Notes |
+|---|---|---|
+| Directional focus | `Super` + `h/j/k/l` | Moves focus by screen geometry via `focusdir`. |
+| **Directional swap** | `Super+Shift` + `h/j/k/l` | Swaps the focused window with the nearest visible window left/down/up/right. Works in **every** layout (tile, monocle, grid, bstack, centeredmaster, deck) and with floating windows. |
+| Move floating window | `Alt+Shift` + `h/j/k/l` | Keyboard move (50 px steps). |
+| Resize floating window | `Alt+Ctrl+Shift` + `h/j/k/l` | Keyboard resize (50 px steps). |
+| Toggle floating | `Alt+Shift+Space` | `togglefloating`. |
+| Enhanced toggle floating | `Alt+e` | `enhancedtogglefloating`. |
+| Monocle position indicator | — | The bar shows `[i/n]` (e.g. `[3/5]`) — the focused window's position among the visible windows — and updates immediately on every focus change. |
+
+Design rules behind these binds:
+
+- **Super keeps focus and layout, Super+Shift swaps, Alt owns everything floating.**
+- Mouse binds (`Super+Drag` move/resize, `Super+Middle` toggle floating) intentionally stay on Super.
+- `movestack` (`Mod+Ctrl+J/K`, tiled-only stack swap) was removed — `swapdir` superseded it; it is disabled with `MOVESTACK 0` in `modules.h`/`modules.def.h`.
+
+How it is implemented:
+
+- `vxwm.c` — `monocle_symbol(Monitor*)` builds the `[i/n]` string; `monocle()` renders it and, crucially, `drawbar()` recomputes it on every redraw. Switching focus in monocle never triggers `arrange()`, which is exactly why the old symbol got stuck.
+- `modules/directionalmove/directionalmove.c` — `swapdir()` replaced the tile-only `movedir()`. Tiled windows are exchanged in the tag's client list and the active layout re-arranges them; floating windows exchange their on-screen geometry (position *and* size) via `XMoveResizeWindow`.
+- `modules/moveresizekbd/moveresizekbd.c` — `moveresize()` now returns unless the selected window is floating; the old silent fallback that also moved tiled windows is gone.
+- `config.h` — bindings live behind the existing module flags (`MOVE_RESIZE_WITH_KEYBOARD`, `DIRECTIONAL_MOVE`, `ENHANCED_TOGGLE_FLOATING`); `ALTERNATE_MODKEY` is `Mod1Mask` (Alt).
+
+Rebuild (as above), then restart the session with `rvx` to pick up the new binary.
+
 ## Shell configuration
 
 `~/.config/shell/xdg-env.sh` is the central environment file. It sets:
