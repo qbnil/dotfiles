@@ -262,6 +262,7 @@ static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
+static void monocle_symbol(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
@@ -973,6 +974,10 @@ drawbar(Monitor *m)
 		x += w;
 	}
 
+	/* keep the monocle "[i/n]" indicator current even when only focus changed */
+	if (curlayout(m)->arrange == monocle)
+		monocle_symbol(m);
+
 	w = TEXTW(m->ltsymbol);
 	drw_setscheme(drw, scheme[SchemeNorm]);
 	x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
@@ -1475,17 +1480,32 @@ maprequest(XEvent *e)
 		manage(ev->window, &wa);
 }
 
-void
-monocle(Monitor *m)
+/* Fill m->ltsymbol with "[i/n]" where n is the number of visible windows and i
+ * the 1-based position of the focused window among them. Kept separate from
+ * monocle() so the bar (drawbar) can refresh the number after a plain focus
+ * change without re-running the whole arrange. */
+static void
+monocle_symbol(Monitor *m)
 {
-	unsigned int n = 0;
+	unsigned int n = 0, i = 0;
 	Client *c;
 
 	for (c = m->clients; c; c = c->next)
-		if (ISVISIBLE(c))
+		if (ISVISIBLE(c)) {
 			n++;
-	if (n > 0) /* override layout symbol */
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d]", n);
+			if (c == m->sel)
+				i = n;
+		}
+	if (n > 0) /* override layout symbol, e.g. "[3/5]" means window 3 of 5 */
+		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d/%d]", i, n);
+}
+
+void
+monocle(Monitor *m)
+{
+	Client *c;
+
+	monocle_symbol(m);
 	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
 		resize(c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
 }

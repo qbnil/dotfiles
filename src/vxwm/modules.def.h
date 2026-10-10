@@ -157,7 +157,7 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 #define EXTRA_LAYOUTS 1 // bstack (TTT), centeredmaster (|M|) and deck (D) layouts.
 #define LAYOUT_CYCLE 1  // cyclelayout: step through the tiling layouts (floating is skipped).
 #define SHIFTVIEW 1     // shiftview: previous/next tag, wrapping around.
-#define MOVESTACK 1     // movestack: swap the focused tiled window up/down the stack, any layout.
+#define MOVESTACK 0     // movestack removed: swapdir (Super+Shift+hjkl) replaces it
 
 
 

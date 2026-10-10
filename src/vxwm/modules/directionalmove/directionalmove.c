@@ -1,15 +1,27 @@
+/* Swap the focused window with the closest visible window in the given
+ * direction (0 = left, 1 = right, 2 = up, 3 = down).
+ *
+ * Unlike the old movedir(), this works in every layout and handles both
+ * kinds of window:
+ *   - tiled windows are exchanged in the client list, so whichever tiling
+ *     layout is active simply re-arranges them in their new order;
+ *   - floating windows exchange their on-screen geometry (position + size).
+ */
 void
-movedir(const Arg *arg)
+swapdir(const Arg *arg)
 {
-        if (selmon->lt[selmon->sellt]->arrange != tile) return;
-        Client *s = selmon->sel, *f = NULL, *c, *next;
-        if (!s)
-                return;
+        Client *s = selmon->sel, *f = NULL, *c, *next, *p;
         unsigned int score = -1;
         unsigned int client_score;
         int dist;
         int dirweight = 20;
-        int isfloating = s->isfloating;
+        int isfloating;
+
+        if (!s)
+                return;
+
+        isfloating = s->isfloating || curlayout(selmon)->arrange == NULL;
+
         next = s->next;
         if (!next)
                 next = s->mon->clients;
@@ -54,7 +66,22 @@ movedir(const Arg *arg)
         if (!f || f == s)
                 return;
 
-        Client *ps = NULL, *pf = NULL, *p;
+        if (isfloating) {
+                /* exchange geometry so each window takes the other's place */
+                int tx = s->x, ty = s->y, tw = s->w, th = s->h;
+                s->x = f->x; s->y = f->y; s->w = f->w; s->h = f->h;
+                f->x = tx;   f->y = ty;   f->w = tw;   f->h = th;
+                XMoveResizeWindow(dpy, s->win, s->x, s->y, s->w, s->h);
+                XMoveResizeWindow(dpy, f->win, f->x, f->y, f->w, f->h);
+                configure(s);
+                configure(f);
+                focus(s);
+                restack(s->mon);
+                return;
+        }
+
+        /* tiled windows: swap the two entries in the client list */
+        Client *ps = NULL, *pf = NULL;
         for (p = s->mon->clients; p; p = p->next) {
                 if (p->next == s) ps = p;
                 if (p->next == f) pf = p;
@@ -77,8 +104,5 @@ movedir(const Arg *arg)
         }
 
         focus(s);
-#if WARP_TO_CLIENT && WARP_TO_CENTER_OF_WINDOW_AFFECTED_BY_FOCUSSTACK
-        warptoclient(f);
-#endif
         arrange(s->mon);
 }

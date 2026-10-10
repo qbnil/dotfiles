@@ -1,1 +1,1 @@
-static void movedir(const Arg *arg);
+static void swapdir(const Arg *arg);

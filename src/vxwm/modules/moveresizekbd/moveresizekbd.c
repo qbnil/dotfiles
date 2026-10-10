@@ -7,18 +7,10 @@ moveresize(const Arg *arg)
 	XEvent ev;
 	Monitor *m = selmon;
 
-	if(!(m->sel && arg && arg->v && m->sel->isfloating)) {
-
-#if DIRECTIONAL_MOVE
-    if (((int *)arg->v)[0] != 0 || ((int *)arg->v)[1] != 0) {
-      if (((int *)arg->v)[1] > 0) movedir(&(Arg){.i = 3});  // Down
-      if (((int *)arg->v)[1] < 0) movedir(&(Arg){.i = 2});  // Up
-      if (((int *)arg->v)[0] > 0) movedir(&(Arg){.i = 1});  // Right
-      if (((int *)arg->v)[0] < 0) movedir(&(Arg){.i = 0});  // Left
-    }
-#endif
+	/* moveresize only moves/resizes floating windows; swapping windows in any
+	   layout is handled by swapdir (Super+Shift+hjkl). */
+	if (!(m->sel && arg && arg->v && m->sel->isfloating))
 		return;
-  }
 
   XRaiseWindow(dpy, m->sel->win);
 
@@ -66,17 +58,10 @@ moveresize(const Arg *arg)
   if (!m->sel || !arg || !arg->v)
     return;
 
-  if (!m->sel->isfloating) {
-#if DIRECTIONAL_MOVE
-    if (selmon->lt[selmon->sellt]->arrange != NULL && (dx || dy)) {
-      if (dy > 0) movedir(&(Arg){.i = 3}); // Down
-      if (dy < 0) movedir(&(Arg){.i = 2}); // Up
-      if (dx > 0) movedir(&(Arg){.i = 1}); // Right
-      if (dx < 0) movedir(&(Arg){.i = 0}); // Left
-    }
-#endif
-        return;
-  }
+  /* moveresize only moves/resizes floating windows; swapping windows in any
+     layout is handled by swapdir (Super+Shift+hjkl). */
+  if (!m->sel->isfloating)
+    return;
 
 
   Client *c = m->sel;

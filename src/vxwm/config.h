@@ -238,7 +238,7 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[2]} },
   { MODKEY,                       XK_g,      setlayout,      {.v = &layouts[3]} },
 //	{ MODKEY|ControlMask,           XK_space,  setlayout,      {0} },
-	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} }, //default toggle floating bind.
+	{ ALTERNATE_MODKEY|ShiftMask,   XK_space,  togglefloating, {0} }, //default toggle floating bind. (Alt because floating)
 	{ MODKEY,                       XK_Tab,    view,           {.ui = ~0 } },
 	{ MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
 	{ MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
@@ -252,10 +252,6 @@ static const Key keys[] = {
 #if LAYOUT_CYCLE
 	{ MODKEY|ControlMask,           XK_comma,  cyclelayout,    {.i = -1 } },
 	{ MODKEY|ControlMask,           XK_period, cyclelayout,    {.i = +1 } },
-#endif
-#if MOVESTACK
-	{ MODKEY|ControlMask,           XK_j,      movestack,      {.i = +1 } },
-	{ MODKEY|ControlMask,           XK_k,      movestack,      {.i = -1 } },
 #endif
 	{ MODKEY|ShiftMask,             XK_s,      spawn,          {.v = screenshotcmd } },
 	TAGKEYS(                        XK_1,                      0)
@@ -275,7 +271,7 @@ static const Key keys[] = {
   { MODKEY|ShiftMask,             XK_f,      togglefullscr,  {0} },
 #endif
 #if ENHANCED_TOGGLE_FLOATING
-  { MODKEY,             XK_e,      enhancedtogglefloating, {0} }, //enhanced toggle floating bind.
+  { ALTERNATE_MODKEY,   XK_e,      enhancedtogglefloating, {0} }, //enhanced toggle floating bind. (Alt because floating)
 #endif
 #if FLOATING_ALTTAB
   { ALTERNATE_MODKEY,             XK_Tab,    alttaball,       {.i = +1 } }, // next window (tiled and floating)
@@ -289,14 +285,20 @@ static const Key keys[] = {
   { MODKEY|ShiftMask,             XK_equal,  setgaps,        {.i = 0  } },
 #endif
 #if MOVE_RESIZE_WITH_KEYBOARD
-  { MODKEY|ShiftMask,		 	      XK_j,	moveresize,		{.v = (int []){ 0, MOVE_WITH_KEYBOARD_STEP, 0, 0 }}}, // Move window to down
-  { MODKEY|ShiftMask,			      XK_k,	moveresize,		{.v = (int []){ 0, -MOVE_WITH_KEYBOARD_STEP, 0, 0 }}}, // Move window to up
-  { MODKEY|ShiftMask,			      XK_l,	moveresize,		{.v = (int []){ MOVE_WITH_KEYBOARD_STEP, 0, 0, 0 }}}, // Move window to right
-  { MODKEY|ShiftMask,			      XK_h,	moveresize,		{.v = (int []){ -MOVE_WITH_KEYBOARD_STEP, 0, 0, 0 }}}, // Move window to left
-  { MODKEY|ControlMask|ShiftMask,		      XK_l,	moveresize,		{.v = (int []){ 0, 0, RESIZE_WITH_KEYBOARD_STEP, 0 }}}, // Resize window to right
-  { MODKEY|ControlMask|ShiftMask,		      XK_h,	moveresize,		{.v = (int []){ 0, 0, -RESIZE_WITH_KEYBOARD_STEP, 0 }}}, // Resize window to left
-  { MODKEY|ControlMask|ShiftMask,		      XK_j,	moveresize,		{.v = (int []){ 0, 0, 0, RESIZE_WITH_KEYBOARD_STEP }}}, // Resize window to down
-  { MODKEY|ControlMask|ShiftMask,		      XK_k,	moveresize,		{.v = (int []){ 0, 0, 0, -RESIZE_WITH_KEYBOARD_STEP }}}, // Resize window to up
+  { ALTERNATE_MODKEY|ShiftMask,		 	      XK_j,	moveresize,		{.v = (int []){ 0, MOVE_WITH_KEYBOARD_STEP, 0, 0 }}}, // Move floating window to down
+  { ALTERNATE_MODKEY|ShiftMask,			      XK_k,	moveresize,		{.v = (int []){ 0, -MOVE_WITH_KEYBOARD_STEP, 0, 0 }}}, // Move floating window to up
+  { ALTERNATE_MODKEY|ShiftMask,			      XK_l,	moveresize,		{.v = (int []){ MOVE_WITH_KEYBOARD_STEP, 0, 0, 0 }}}, // Move floating window to right
+  { ALTERNATE_MODKEY|ShiftMask,			      XK_h,	moveresize,		{.v = (int []){ -MOVE_WITH_KEYBOARD_STEP, 0, 0, 0 }}}, // Move floating window to left
+  { ALTERNATE_MODKEY|ControlMask|ShiftMask,		      XK_l,	moveresize,		{.v = (int []){ 0, 0, RESIZE_WITH_KEYBOARD_STEP, 0 }}}, // Resize floating window to right
+  { ALTERNATE_MODKEY|ControlMask|ShiftMask,		      XK_h,	moveresize,		{.v = (int []){ 0, 0, -RESIZE_WITH_KEYBOARD_STEP, 0 }}}, // Resize floating window to left
+  { ALTERNATE_MODKEY|ControlMask|ShiftMask,		      XK_j,	moveresize,		{.v = (int []){ 0, 0, 0, RESIZE_WITH_KEYBOARD_STEP }}}, // Resize floating window to down
+  { ALTERNATE_MODKEY|ControlMask|ShiftMask,		      XK_k,	moveresize,		{.v = (int []){ 0, 0, 0, -RESIZE_WITH_KEYBOARD_STEP }}}, // Resize floating window to up
+#endif
+#if DIRECTIONAL_MOVE
+  { MODKEY|ShiftMask,             XK_h,      swapdir,        {.i = 0 } }, // Swap window with the one to the left
+  { MODKEY|ShiftMask,             XK_j,      swapdir,        {.i = 3 } }, // Swap window with the one below
+  { MODKEY|ShiftMask,             XK_k,      swapdir,        {.i = 2 } }, // Swap window with the one above
+  { MODKEY|ShiftMask,             XK_l,      swapdir,        {.i = 1 } }, // Swap window with the one to the right
 #endif
 #if INFINITE_TAGS
   { ALTERNATE_MODKEY,             XK_r,      homecanvas,       {0} }, // Return to x:0, y:0 position
