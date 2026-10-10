@@ -14,6 +14,7 @@ const c = @cImport({
     @cInclude("errno.h");
     @cInclude("fcntl.h");
     @cInclude("poll.h");
+    @cInclude("sys/inotify.h");
     @cInclude("netinet/in.h");
     @cInclude("arpa/inet.h");
     // Network status: raw rtnetlink socket (event-driven, no polling) +
@@ -179,12 +180,22 @@ const MAX_EVENTS = 8;
 var last_monotonic: i64 = 0;
 
 // ---------------------------------------------------------------------------
-// Network status, via rtnetlink group socket (no polling, no subprocess)
+// Network status — entirely event-driven (rtnetlink + inotify + epoll), with
+// the one-minute clock tick borrowed only for self-healing.
 //
-// Deliberately cheap: everything here runs synchronously on the epoll thread,
-// but only when something can actually have changed — a netlink event or the
-// existing 60s clock tick. There is no background thread and no timerfd, so an
-// idle zlstatus does no periodic work of its own.
+// Nothing network-related is polled in the healthy case:
+//   - rtnetlink group socket: link up/down, IPv4 address and default-route
+//     changes arrive as netlink events (netInit);
+//   - inotify on /etc/resolv.conf and /run/systemd/resolve: nameserver config
+//     changes repaint the verdict immediately (dnsInit);
+//   - the reachability probe completes through epoll, so an in-flight probe
+//     costs the bar nothing while waiting (probeStart/probeFinish).
+//
+// zlstatus still runs a one-minute timer for the clock and battery. The network
+// keeps its own short retry timer, armed ONLY while the last verdict was
+// unhealthy (probeRetryArm/probeTick) and disarmed the moment a probe succeeds,
+// so a dead link, exit node or captive portal heals within a couple of seconds
+// without turning a healthy system into a polling loop.
 //
 // Each layer's health is inferred from CONFIGURATION (is there a default route,
 // does resolv.conf list nameservers, is tailscaled Running) rather than by
@@ -198,12 +209,16 @@ var last_monotonic: i64 = 0;
 // The one thing config genuinely cannot answer is "is there internet at all":
 // every one of those signals stays green while the link is up and no packet
 // leaves the machine (dead exit node, captive portal, upstream outage). That
-// case is covered by probeStart/probeFinish below, which is non-blocking and so
-// carries none of the stall that got the earlier probe version removed.
+// case is covered by probeStart/probeFinish below.
 // ---------------------------------------------------------------------------
 var netfd: c_int = -1;
-var net_buf: [48]u8 = undefined;
+var net_buf: [96]u8 = undefined;
 var net_len: usize = 0;
+
+// inotify fd watching the two places resolv.conf actually lives (see dnsInit).
+var dnsfd: c_int = -1;
+var dns_wd_etc: c_int = -1;
+var dns_wd_resolve: c_int = -1;
 
 // Last interface that held a default route. Used to avoid showing a VPN/tunnel
 // interface with !route during resume, when the physical interface's default
@@ -223,7 +238,7 @@ const RTMGRP_IPV4_IFADDR: u32 = 0x10;
 const RTMGRP_IPV4_ROUTE: u32 = 0x40;
 
 fn netSetDown() void {
-    const down = "down";
+    const down = "net down";
     @memcpy(net_buf[0..down.len], down);
     net_len = down.len;
 }
@@ -309,6 +324,32 @@ const DnsInfo = struct {
     // True while every nameserver seen so far sits in Tailscale's 100.64.0.0/10.
     all_cgnat: bool = true,
 };
+
+/// IPv4 address of `ifname`, as a slice into `buf`, or null when the interface
+/// has no IPv4 address bound right now.
+///
+/// getifaddrs() is cheap and this only ever runs in response to a netlink or
+/// inotify event — a changed address already woke us up, so showing stale text
+/// would be the only way to be slow here.
+fn ifaceAddrInto(buf: []u8, ifname: []const u8) ?[]const u8 {
+    var ifaddr: ?*c.ifaddrs = null;
+    if (c.getifaddrs(&ifaddr) != 0) return null;
+    defer _ = c.freeifaddrs(ifaddr);
+    var cur: ?*c.ifaddrs = ifaddr;
+    while (cur) |ifa| : (cur = ifa.*.ifa_next) {
+        const sa: ?*c.sockaddr = ifa.*.ifa_addr;
+        if (sa == null) continue;
+        if (sa.?.*.sa_family != c.AF_INET) continue;
+        if (c.snprintf(buf.ptr, buf.len, "%s", ifa.*.ifa_name) <= 0) continue;
+        const nlen = std.mem.indexOfScalar(u8, buf[0..buf.len], 0) orelse continue;
+        if (!std.mem.eql(u8, buf[0..nlen], ifname)) continue;
+        const addr: *const c.sockaddr_in = @ptrCast(@alignCast(&sa.?.*));
+        if (c.inet_ntop(c.AF_INET, &addr.sin_addr, buf.ptr, @intCast(buf.len)) == null) return null;
+        const alen = std.mem.indexOfScalar(u8, buf[0..buf.len], 0) orelse return null;
+        return buf[0..alen];
+    }
+    return null;
+}
 
 /// Count the usable IPv4 nameservers in /etc/resolv.conf.
 ///
@@ -399,11 +440,9 @@ fn tailscaleRunning() bool {
     return std.mem.startsWith(u8, body[i..], "Running\"");
 }
 
-/// Rebuild the net segment: the interface name, then any fault tags.
-///
-/// Healthy output is just `wlan0 ts`. Faults are appended in a fixed order so the
-/// string stays stable between refreshes — a bar whose text jitters is worse than
-/// one that is merely terse.
+/// Re-read current route / DNS / interface state, repaint the bar and (re)arm
+/// the reachability probe. Called from every network wakeup: netlink events,
+/// resolv.conf changes via inotify, and suspend/resume detection.
 fn netRefresh() void {
     const route = readRouteInfo();
     cached_route = route;
@@ -417,6 +456,15 @@ fn netRefresh() void {
 /// verdict must repaint the bar WITHOUT re-arming: re-arming here would make
 /// every verdict kick off another probe, and a probe that resolves instantly
 /// (refused, or unroutable) would spin at whatever rate it completes.
+///
+/// Plain text, faults in a fixed order so the string stays stable between
+/// refreshes — a bar whose text jitters is worse than one that is merely terse.
+/// Examples:
+///   `wlan0 192.168.1.42`         healthy
+///   `wlan0 192.168.1.42 +ts`     healthy, Tailscale exit is running
+///   `eth0 192.168.1.9 no-route`  link up, no default route yet
+///   `wlan0 192.168.1.42 no-net`  reachability probe failed
+///   `net down`                   nothing usable is up
 fn netRender(route: RouteInfo) void {
     // Prefer the interface that owns the default route. When there's no default
     // route, prefer the last interface that HAD one (handles resume race where
@@ -444,19 +492,26 @@ fn netRender(route: RouteInfo) void {
     var len: usize = 0;
     netAppend(&len, name);
 
-    if (!route.has_default) netAppend(&len, "!route");
+    // IPv4 of the active interface, when it has one.
+    var ipbuf: [16]u8 = undefined;
+    if (ifaceAddrInto(&ipbuf, name)) |ip| {
+        netAppend(&len, " ");
+        netAppend(&len, ip);
+    }
+
+    if (!route.has_default) netAppend(&len, " no-route");
 
     const ts_ok = tailscaleRunning();
     if (!cached_dns_valid) {
         cached_dns = readDnsInfo();
         cached_dns_valid = true;
     }
-    if (cached_dns.count == 0 or (cached_dns.all_cgnat and !ts_ok)) netAppend(&len, "!dns");
+    if (cached_dns.count == 0 or (cached_dns.all_cgnat and !ts_ok)) netAppend(&len, " no-dns");
 
-    netAppend(&len, if (ts_ok) " ts" else "!ts");
+    if (ts_ok) netAppend(&len, " +ts");
 
     if (net_ok) |ok| {
-        if (!ok) netAppend(&len, " !net");
+        if (!ok) netAppend(&len, " no-net");
     }
 
     net_len = len;
@@ -486,8 +541,66 @@ fn netInit() void {
         .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
         .data = .{ .u64 = @intFromEnum(Event.NetChange) },
     };
-    // Non-fatal: if this fails we still refresh once a minute from the clock.
+    // Non-fatal: without this the bar repaints on the other wakeups that still
+    // exist (inotify, probe, suspend detection).
     _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, netfd, &event);
+}
+
+/// Watch the two places resolv.conf actually lives so nameserver changes repaint
+/// the bar instantly instead of waiting for a netlink event that may never come
+/// (e.g. tailscaled rewriting resolv.conf while routes stay put). systemd-resolved
+/// writes /run/systemd/resolve/stub-resolv.conf in place; other resolvers rewrite
+/// /etc/resolv.conf directly, sometimes via rename. Both are watched at the
+/// directory level so a rename that REPLACES the file is still seen (IN_MOVED_TO),
+/// which watching the file itself would miss.
+fn dnsInit() void {
+    dnsfd = c.inotify_init1(c.IN_NONBLOCK);
+    if (dnsfd < 0) {
+        _ = c.fprintf(c.stderr, "net: inotify_init1() failed, DNS changes only on netlink events\n");
+        return;
+    }
+    const dir_mask: u32 = @intCast(c.IN_MODIFY | c.IN_CREATE | c.IN_MOVED_TO | c.IN_DELETE | c.IN_ATTRIB);
+    dns_wd_etc = c.inotify_add_watch(dnsfd, "/etc", dir_mask);
+    dns_wd_resolve = c.inotify_add_watch(dnsfd, "/run/systemd/resolve", dir_mask);
+    if (dns_wd_etc < 0 and dns_wd_resolve < 0) {
+        _ = c.fprintf(c.stderr, "net: no resolv.conf path watchable, keeping netlink-only DNS\n");
+        _ = c.close(dnsfd);
+        dnsfd = -1;
+        return;
+    }
+    var event = c.epoll_event{
+        .events = @as(u32, c.EPOLLIN),
+        .data = .{ .u64 = @intFromEnum(Event.DnsChange) },
+    };
+    // Non-fatal: without this we still repaint on every netlink event.
+    _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, dnsfd, &event);
+}
+
+/// Drain the inotify buffer; refresh only if a watched resolv.conf actually
+/// changed — other /etc activity must never touch the bar.
+fn dnsHandleEvent() void {
+    if (dnsfd < 0) return;
+    var buf: [4096]u8 = undefined;
+    const n = c.read(dnsfd, &buf, buf.len);
+    if (n < 0) return;
+    const hdr = @sizeOf(c.inotify_event);
+    const total: usize = @intCast(n);
+    var off: usize = 0;
+    var relevant: bool = false;
+    while (off + hdr <= total) {
+        const ev: *c.inotify_event = @ptrCast(@alignCast(&buf[off]));
+        const namelen: usize = @intCast(ev.*.len);
+        if (namelen > 1) {
+            const name: [*]const u8 = @ptrCast(@alignCast(&buf[off + hdr]));
+            if (ev.*.wd == dns_wd_etc and std.mem.eql(u8, name[0 .. namelen - 1], "resolv.conf"))
+                relevant = true;
+            if (ev.*.wd == dns_wd_resolve and std.mem.eql(u8, name[0 .. namelen - 1], "stub-resolv.conf"))
+                relevant = true;
+        }
+        off += hdr + namelen;
+    }
+    if (!relevant) return;
+    netRefresh();
 }
 
 fn netHandleEvent() void {
@@ -527,8 +640,17 @@ const PROBE_PORT: u16 = 443;
 // generous on purpose: it only exists to stop a silently-dropped SYN from
 // pinning the probe in flight until the kernel's own ~127s connect timeout,
 // which would freeze the verdict at whatever the last refresh saw. Checked from
-// the once-a-minute tick, so the real resolution is one tick.
+// the short retry tick below, so a stuck probe resolves in ~PROBE_RETRY_SEC.
 const PROBE_STUCK_SEC: i64 = 8;
+
+// How often to re-probe while the last verdict was unhealthy. A once-a-minute
+// tick is far too coarse to notice the internet COMING BACK: the bar would keep
+// saying `no-net` for up to a minute after connectivity returned, which reads as
+// "still broken". Armed only while net_ok == false and disarmed the instant a
+// probe succeeds, so the healthy case still does zero periodic network work.
+const PROBE_RETRY_SEC: i64 = 2;
+var probe_timerfd: c_int = -1;
+var probe_timer_armed: bool = false;
 
 var probe_fd: c_int = -1;
 // null until a probe has produced a verdict. Null is NOT "unreachable": at
@@ -617,14 +739,54 @@ fn probeFinish(stuck: bool) void {
         net_ok = (err == 0);
     }
     netRender(cached_route);
+
+    // While unhealthy, keep re-probing so recovery is noticed quickly instead
+    // of at the next minute tick. Stop the moment we're healthy again.
+    if (net_ok == false) probeRetryArm() else probeRetryDisarm();
 }
 
-/// Is a probe still outstanding, and has it outrun its deadline? Called from the
-/// once-a-minute tick, which is the only place with a clock to judge it by.
+/// Start the short retry timer (if not already running). Auto-repeating: it
+/// keeps firing every PROBE_RETRY_SEC until probeRetryDisarm, so an in-flight
+/// stuck probe still gets its expiry check on the next tick.
+fn probeRetryArm() void {
+    if (probe_timerfd < 0 or probe_timer_armed) return;
+    const it = c.itimerspec{
+        .it_value = .{ .tv_sec = PROBE_RETRY_SEC, .tv_nsec = 0 },
+        .it_interval = .{ .tv_sec = PROBE_RETRY_SEC, .tv_nsec = 0 },
+    };
+    if (c.timerfd_settime(probe_timerfd, 0, &it, null) == 0)
+        probe_timer_armed = true;
+}
+
+/// Stop the retry timer. Called on a healthy verdict (and could be called at
+/// shutdown); a zeroed itimerspec disarms a timerfd.
+fn probeRetryDisarm() void {
+    if (probe_timerfd < 0 or !probe_timer_armed) return;
+    const it = c.itimerspec{
+        .it_value = .{ .tv_sec = 0, .tv_nsec = 0 },
+        .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 },
+    };
+    _ = c.timerfd_settime(probe_timerfd, 0, &it, null);
+    probe_timer_armed = false;
+}
+
+/// Probe maintenance. Runs from BOTH the short retry timer (while unhealthy)
+/// and the once-a-minute tick (a safety net):
+///  - a probe still in flight expires if it outran its deadline;
+///  - otherwise, a new probe is armed only while the last verdict was UNHEALTHY,
+///    so a silent failure (dead exit node, captive portal) can heal itself.
+/// The retry timer exists precisely so recovery shows up in ~PROBE_RETRY_SEC
+/// rather than at the next clock tick. A healthy network does no periodic work
+/// at all — real events (netlink, inotify, probe completion) drive everything.
 fn probeTick() void {
-    if (probe_fd < 0) return;
-    if (probeElapsedSec() - probe_started < PROBE_STUCK_SEC) return;
-    probeFinish(true);
+    const elapsed = probeElapsedSec(); // also detects suspend/resume
+    if (probe_fd >= 0) {
+        if (elapsed - probe_started < PROBE_STUCK_SEC) return;
+        probeFinish(true);
+        return;
+    }
+    if (net_ok == false)
+        probeStart(cached_route.has_default);
 }
 
 // ---------------------------------------------------------------------------
@@ -945,8 +1107,24 @@ pub fn main() u8 {
     if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, alsafd.fd, &event) < 0)
         @panic("epoll_ctl");
 
-    // Network status (rtnetlink group socket, event-driven) - non-fatal
+    // Short retry timer for the reachability probe: armed only while the last
+    // verdict was unhealthy (probeRetryArm), so recovery from a silent outage
+    // is noticed in ~PROBE_RETRY_SEC instead of at the next clock tick. Created
+    // before netInit() because the first probe may fail and arm it immediately.
+    probe_timerfd = c.timerfd_create(c.CLOCK_MONOTONIC, c.TFD_NONBLOCK);
+    if (probe_timerfd < 0) @panic("timerfd_create probe");
+    defer _ = c.close(probe_timerfd);
+    event = c.epoll_event{
+        .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
+        .data = .{ .u64 = @intFromEnum(Event.ProbeRetry) },
+    };
+    if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, probe_timerfd, &event) < 0)
+        @panic("epoll_ctl probe");
+
+    // Network status (rtnetlink group socket, event-driven) + resolv.conf
+    // watcher (inotify) - both non-fatal
     netInit();
+    dnsInit();
 
     // Everything fast (time, battery, volume, network) is known by now —
     // paint it. This is the FIRST paint, so the bar never appears with
@@ -983,7 +1161,9 @@ const Event = enum(u8) {
     VolChange,
     MpdEvent,
     NetChange,
+    DnsChange,
     ProbeDone,
+    ProbeRetry,
 
     fn handleTimeout1m() void {
         readTime();
@@ -991,14 +1171,8 @@ const Event = enum(u8) {
         var exp_count: u64 = undefined;
         _ = c.read(timerfd, &exp_count, @sizeOf(u64));
         readBatCapacity();
-        // Re-read the network too. Tailscale can come and go (and with it
-        // rewrite resolv.conf) without any link or route change, so the
-        // netlink socket alone would not wake us for that; once a minute is
-        // cheap enough and keeps the bar self-correcting.
-        netRefresh();
-        // Retire a probe that has outrun its deadline, and re-arm the next one.
-        // Together with netRefresh's own re-arm this is the only thing that
-        // keeps the verdict fresh while the network is down and silent.
+        // Network is event-driven (netlink + inotify + probe). The only
+        // periodic network work is probe self-healing below.
         probeTick();
         // Retry MPD connection if it dropped (e.g. mpd wasn't running at startup)
         if (mpdfd < 0) mpdConnect();
@@ -1016,8 +1190,20 @@ const Event = enum(u8) {
         netHandleEvent();
     }
 
+    fn handleDnsChange() void {
+        dnsHandleEvent();
+    }
+
     fn handleProbeDone() void {
         probeFinish(false);
+    }
+
+    fn handleProbeRetry() void {
+        // Consume the expiration. Auto-repeating while armed, so there may be
+        // more than one pending; one read resets the count.
+        var exp: u64 = undefined;
+        _ = c.read(probe_timerfd, &exp, @sizeOf(u64));
+        probeTick();
     }
 
     fn handleEvent(self: Event) void {
@@ -1026,7 +1212,9 @@ const Event = enum(u8) {
             .VolChange => handleVolChange(),
             .MpdEvent => handleMpdEvent(),
             .NetChange => handleNetChange(),
+            .DnsChange => handleDnsChange(),
             .ProbeDone => handleProbeDone(),
+            .ProbeRetry => handleProbeRetry(),
         }
     }
 };

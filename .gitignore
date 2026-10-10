@@ -12,6 +12,7 @@
 # Build artifacts from vendored sources
 **/zig-out/
 **/zig-cache/
+**/.zig-cache/
 **/config.h.bak
 src/*/config.h.bak
 

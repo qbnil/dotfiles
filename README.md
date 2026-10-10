@@ -132,6 +132,7 @@ install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 | Toggle floating | `Alt+Shift+Space` | `togglefloating`. |
 | Enhanced toggle floating | `Alt+e` | `enhancedtogglefloating`. |
 | Monocle position indicator | — | The bar shows `[i/n]` (e.g. `[3/5]`) — the focused window's position among the visible windows — and updates immediately on every focus change. |
+| **Minimal floating canvas** | `Super+F` (`Mod+F`) | Floating mode allows free move/resize with overlaps; no automatic pushing or reflow on move/resize. Initial spread is preserved on entry, and pressing `Mod+F` restores the stacked spread layout and reveals the focused window. |
 
 Design rules behind these binds:
 
@@ -255,6 +256,8 @@ Then rebuild custom programs if their source changed:
 ```bash
 ./install.sh
 ```
+
+**Note:** For `slock` (`src/slock/config.h`), you must change the `user` (and optionally `group`) from `"nobody"` to your system username before building. Otherwise `slock` will fail to drop privileges correctly. Also update `src/slock/README` or this README if your username differs — the default is `nobody`.
 
 Check the resulting Stow plan at any time with:
 

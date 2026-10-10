@@ -27,6 +27,7 @@ static const char *passmanagercmd[] = { "st", "-c", "passmanager", "-e", "passma
 static const char *opencode_cmd[] = { "st", "-e", "opencode", NULL };
 static const char *claude_cmd[] = { "st", "-e", "claude", NULL };
 static const char *tailscaletoggle[] = { "tailscaletoggle", NULL };
+static const char *netmenu[] = { "networkmanager_dmenu", NULL };
 /* Needs `brightnessctl` (and your user in the `video` group or its udev rule). */
 static const char *bright_up[]   = { "brightnessctl", "-q", "set", "5%+", NULL };
 static const char *bright_down[] = { "brightnessctl", "-q", "set", "5%-", NULL };
@@ -141,6 +142,7 @@ static const Rule rules[] = {
 	/* class      instance    title       tags mask     isfloating   monitor */
 	{ "Gimp",     NULL,       NULL,       0,            1,           -1 },
   { "passmanager", NULL,    NULL,       0,            1,           -1 },
+  { "flameshot", NULL,      NULL,       0,            1,           -1 },
 //	{ "vivaldi",  NULL,       NULL,       1 << 8,       0,           -1 },
 };
 
@@ -158,10 +160,11 @@ static const Layout layouts[] = {
 	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[M]",      monocle },
   { "[G]",      grid },
+  { "[H]",      strip },   /* endless horizontal row, scrolls with focus (Mod+e) */
+  { "[V]",      vstrip },  /* endless vertical column, scrolls with focus (Mod+r) */
 #if EXTRA_LAYOUTS
   { "TTT",      bstack },
   { "|M|",      centeredmaster },
-  { "[D]",      deck },
 #endif
 };
 
@@ -228,8 +231,8 @@ static const Key keys[] = {
 //	{ MODKEY|ShiftMask,             XK_k,      focusstack,     {.i = -1 } },
 	{ MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
 	{ MODKEY,                       XK_o,      incnmaster,     {.i = -1 } },
-	{ MODKEY|ControlMask,           XK_h,      setmfact,       {.f = -0.05} },
-	{ MODKEY|ControlMask,           XK_l,      setmfact,       {.f = +0.05} },
+	{ MODKEY|ControlMask,           XK_h,      stripresize,    {.f = -0.05} },
+	{ MODKEY|ControlMask,           XK_l,      stripresize,    {.f = +0.05} },
 	{ MODKEY|ShiftMask,             XK_Return, swapmaster,     {0} },
 	{ MODKEY,                       XK_0,      view,           {0} },
 	{ MODKEY,	                XK_q,      killclient,     {0} },
@@ -237,6 +240,8 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_f,      setlayout,      {.v = &layouts[1]} },
 	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[2]} },
   { MODKEY,                       XK_g,      setlayout,      {.v = &layouts[3]} },
+  { MODKEY,                       XK_e,      setlayout,      {.v = &layouts[4]} },
+  { MODKEY,                       XK_r,      setlayout,      {.v = &layouts[5]} },
 //	{ MODKEY|ControlMask,           XK_space,  setlayout,      {0} },
 	{ ALTERNATE_MODKEY|ShiftMask,   XK_space,  togglefloating, {0} }, //default toggle floating bind. (Alt because floating)
 	{ MODKEY,                       XK_Tab,    view,           {.ui = ~0 } },
@@ -310,10 +315,10 @@ static const Key keys[] = {
   { ALTERNATE_MODKEY,             XK_z,      pinwindow,        {0} },
 #endif
 #if DIRECTIONAL_FOCUS
-	{ MODKEY, XK_h,   focusdir,       {.i = 0 } }, // left
-	{ MODKEY, XK_l,   focusdir,       {.i = 1 } }, // right
-	{ MODKEY, XK_k,   focusdir,       {.i = 2 } }, // up
-	{ MODKEY, XK_j,   focusdir,       {.i = 3 } }, // down
+	{ MODKEY, XK_h,   focusstrip,     {.i = 0 } }, // left  (strip: older window)
+	{ MODKEY, XK_l,   focusstrip,     {.i = 1 } }, // right (strip: newer window)
+	{ MODKEY, XK_k,   focusstrip,     {.i = 2 } }, // up    (vstrip: older window)
+	{ MODKEY, XK_j,   focusstrip,     {.i = 3 } }, // down  (vstrip: newer window)
 #endif
 #if ZOOM
  { ALTERNATE_MODKEY|ShiftMask,    XK_r,      spawn,          {.v = zoomreset } },
@@ -355,7 +360,7 @@ static const Button buttons[] = {
 	{ ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
 	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
 	{ ClkWinTitle,          0,              Button2,        swapmaster,     {0} },
-	{ ClkStatusText,        0,              Button2,        spawn,          {.v = termcmd } },
+	{ ClkStatusText,        0,              Button1,        spawn,          {.v = netmenu } },
 	{ ClkClientWin,         MODKEY,         Button1,        movemouse,      {0} },
 	{ ClkClientWin,         MODKEY,         Button2,        togglefloating, {0} },
 	{ ClkClientWin,         MODKEY,         Button3,        resizemouse,    {0} },

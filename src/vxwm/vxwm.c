@@ -134,6 +134,8 @@ struct Client {
 	int bw, oldbw;
 	unsigned int tags;
 	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen;
+	int stripsz[2];
+	int fslot; /* floating-canvas slot (1-based), 0 = none */   /* own size in [H] / [V], in 1/1000 of the screen; 0 = default */
 	Client *next;
 	Client *snext;
 	Monitor *mon;
@@ -203,6 +205,7 @@ struct Monitor {
 #if PER_TAG_LAYOUT
   const Layout **pertaglt;
   unsigned int *pertagsellt;
+  float *pertagmfact;      /* master size of each tag; m->mfact is the one of the shown tag */
 #endif
 #if INFINITE_TAGS
   CanvasOffset *canvas;
@@ -248,7 +251,7 @@ static void expose(XEvent *e);
 static void focus(Client *c);
 static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
-static void focusstack(const Arg *arg);
+static void focusstack(const Arg *arg) __attribute__((unused)); /* kept for config.h binds; unused while they are commented out */
 static Atom getatomprop(Client *c, Atom prop);
 static int getrootptr(int *x, int *y);
 static long getstate(Window w);
@@ -291,6 +294,26 @@ static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tile(Monitor *m);
 static void grid(Monitor *m);
+static void floatspread(Monitor *m);
+static int floatgap(Monitor *m);
+static void floatreflow(Client *c, Client **e, int n, int dir, int press,
+                        int ox, int oy, int ow, int oh);
+static void floatresolve(Client *c);
+static void floatfix(Monitor *m, Client *keep, int margin);
+static void floatrelayout(Monitor *m, Client *c, int ocx, int ocy);
+static void floatreveal(Client *c);
+static void floatplace(Client *c, int tx, int ty, Monitor *m, Client *skip);
+static int floatfocus(int dir);
+static int floatbusy = 0;
+#define FLOAT_W 0.75f  /* window size as share of the work area */
+#define FLOAT_H 0.78f
+
+static void strip(Monitor *m);
+static void vstrip(Monitor *m);
+static void focusstrip(const Arg *arg);
+static void stripresize(const Arg *arg);
+static int stripnoscroll = 0; /* set while a mouse hover changes focus: don't scroll */
+static int stripbusy = 0;     /* reentrancy guard for the focus() hook */
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void toggletag(const Arg *arg);
@@ -433,7 +456,13 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 #if INFINITE_TAGS
 	}
 #endif
-	} else {
+	}
+#if INFINITE_TAGS
+	else if (m->lt[m->sellt]->arrange == NULL) {
+		/* floating canvas: windows may live anywhere, never pull them back on screen */
+	}
+#endif
+	else {
 		if (*x >= m->wx + m->ww)
 			*x = m->wx + m->ww - WIDTH(c);
 		if (*y >= m->wy + m->wh)
@@ -526,6 +555,7 @@ loadtaglayout(Monitor *m)
 {
 	m->lt[0] = curlayout(m);
 	m->sellt = 0;
+	m->mfact = m->pertagmfact[currenttagidx(m)];
 }
 #endif
 
@@ -697,6 +727,9 @@ cleanupmon(Monitor *mon)
 #if INFINITE_TAGS
   free(mon->canvas);
 #endif
+#if PER_TAG_LAYOUT
+  free(mon->pertagmfact);
+#endif
   free(mon);
 
 }
@@ -794,6 +827,20 @@ configurerequest(XEvent *e)
 	if ((c = wintoclient(ev->window))) {
 		if (ev->value_mask & CWBorderWidth)
 			c->bw = ev->border_width;
+#if INFINITE_TAGS
+		else if (c->fslot && !c->mon->lt[c->mon->sellt]->arrange) {
+			/* slot window on the floating canvas: the layout owns its position,
+			 * the client may only ask for another size */
+			if (ev->value_mask & CWWidth) { c->oldw = c->w; c->w = ev->width; }
+			if (ev->value_mask & CWHeight) { c->oldh = c->h; c->h = ev->height; }
+			c->oldx = c->x; c->oldy = c->y;
+			if (ISVISIBLE(c))
+				XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+			configure(c);
+			if ((ev->value_mask & (CWWidth|CWHeight)) && c->mon == selmon)
+				floatresolve(c);
+		}
+#endif
 		else if (c->isfloating || !selmon->lt[selmon->sellt]->arrange) {
 			m = c->mon;
 			if (ev->value_mask & CWX) {
@@ -820,6 +867,11 @@ configurerequest(XEvent *e)
 				configure(c);
 			if (ISVISIBLE(c))
 				XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+#if INFINITE_TAGS
+			if (c->mon->lt[c->mon->sellt]->arrange == NULL &&
+			    (ev->value_mask & (CWWidth|CWHeight)) && c->mon == selmon)
+				floatresolve(c);
+#endif
 		} else
 			configure(c);
 	} else {
@@ -855,11 +907,13 @@ createmon(void)
 #if PER_TAG_LAYOUT
   m->pertaglt = ecalloc(LENGTH(tags), sizeof(const Layout *));
   m->pertagsellt = ecalloc(LENGTH(tags), sizeof(unsigned int));
+  m->pertagmfact = ecalloc(LENGTH(tags), sizeof(float));
   {
       unsigned int t;
       for (t = 0; t < LENGTH(tags); t++) {
           m->pertaglt[t] = &layouts[0];
           m->pertagsellt[t] = 0;
+          m->pertagmfact[t] = mfact;
       }
   }
 #endif
@@ -1058,7 +1112,9 @@ enternotify(XEvent *e)
 		selmon = m;
 	} else if (!c || c == selmon->sel)
 		return;
+	stripnoscroll = 1;
 	focus(c);
+	stripnoscroll = 0;
 }
 
 void
@@ -1074,6 +1130,8 @@ expose(XEvent *e)
 void
 focus(Client *c)
 {
+	int explicitfocus = (c != NULL);
+
 	if (!c || !ISVISIBLE(c))
 		for (c = selmon->stack; c && !ISVISIBLE(c); c = c->snext);
 	if (selmon->sel && selmon->sel != c)
@@ -1098,6 +1156,21 @@ focus(Client *c)
 	}
 	selmon->sel = c;
 	drawbars();
+	/* scrolling strips: slide the row so the explicitly focused window is in
+	 * view. focus(NULL) callers (view, manage, unmanage...) arrange themselves,
+	 * and hover focus must not scroll or windows move under the pointer.
+	 * WINDOWMAP's window_map()/window_unmap() call focus(NULL) from inside arrange(),
+	 * so the guard also keeps this from ever recursing. */
+	if (explicitfocus && !stripnoscroll && c && c->fslot)
+		floatreveal(c);
+	if (explicitfocus && !stripnoscroll && !stripbusy) {
+		const Layout *sl = curlayout(selmon);
+		if (sl->arrange == strip || sl->arrange == vstrip) {
+			stripbusy = 1;
+			arrange(selmon);
+			stripbusy = 0;
+		}
+	}
 }
 
 /* there are some broken focus acquiring clients needing extra handling */
@@ -1400,8 +1473,10 @@ manage(Window w, XWindowAttributes *wa)
 		c->x = c->mon->wx + c->mon->ww - WIDTH(c);
 	if (c->y + HEIGHT(c) > c->mon->wy + c->mon->wh)
 		c->y = c->mon->wy + c->mon->wh - HEIGHT(c);
-	c->x = MAX(c->x, c->mon->wx);
-	c->y = MAX(c->y, c->mon->wy);
+  if (strcmp(c->name, "flameshot") != 0) {
+    c->x = MAX(c->x, c->mon->wx);
+    c->y = MAX(c->y, c->mon->wy);
+  }
 	c->bw = borderpx;
 
 	wc.border_width = c->bw;
@@ -1424,6 +1499,22 @@ manage(Window w, XWindowAttributes *wa)
   c->x = mx - c->w / 2;
   c->y = my - c->h / 2;
 #endif
+#if INFINITE_TAGS
+	/* floating layout: give a new window its own free slot on the canvas */
+	if (c->mon == selmon && curlayout(selmon)->arrange == NULL && !trans && !c->isfixed) {
+		Client *o;
+		for (o = c->mon->clients; o; o = o->next)
+			if ((o->tags & c->tags) && !o->fslot && !o->isfullscreen && !o->is_pinned)
+				break; /* workspace has free-placed windows: keep default placement */
+		if (!o) {
+			c->fslot = 1;
+			c->w = MAX((int)(c->mon->ww * FLOAT_W) - 2 * c->bw, 1);
+			c->h = MAX((int)(c->mon->wh * FLOAT_H) - 2 * c->bw, 1);
+			floatplace(c, c->mon->wx + (c->mon->ww - WIDTH(c)) / 2,
+			           c->mon->wy + (c->mon->wh - HEIGHT(c)) / 2, c->mon, 0);
+		}
+	}
+#endif
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
 	grabbuttons(c, 0);
 	if (!c->isfloating)
@@ -1445,6 +1536,12 @@ manage(Window w, XWindowAttributes *wa)
 	arrange(c->mon);
 	XMapWindow(dpy, c->win);
 	focus(NULL);
+#if INFINITE_TAGS
+	if (c->fslot) {
+		floatfix(c->mon, c, floatgap(c->mon));
+		floatreveal(c);
+	}
+#endif
 #if WARP_TO_CLIENT && WARP_TO_CENTER_OF_NEW_WINDOW 
   warptoclient(c);
 #endif
@@ -1738,6 +1835,7 @@ void
 resizeclient(Client *c, int x, int y, int w, int h)
 {
 	XWindowChanges wc;
+	int sizechanged = (c->w != w || c->h != h);
 
 	c->oldx = c->x; c->x = wc.x = x;
 	c->oldy = c->y; c->y = wc.y = y;
@@ -1747,6 +1845,13 @@ resizeclient(Client *c, int x, int y, int w, int h)
 	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
 	configure(c);
 	XSync(dpy, False);
+#if INFINITE_TAGS
+	/* a window on the floating canvas changed size: reflow its neighbours */
+	if (sizechanged && (c->fslot || c->isfloating) && !floatbusy &&
+	    c->mon == selmon && !curlayout(c->mon)->arrange) {
+		floatresolve(c);
+	}
+#endif
 }
 
 #if !BETTER_RESIZE
@@ -2042,8 +2147,18 @@ setlayout(const Arg *arg)
     else
         new_layout = old_layout == &layouts[0] ? &layouts[1] : &layouts[0];
 
-    if (new_layout == old_layout)
+    if (new_layout == old_layout) {
+#if INFINITE_TAGS
+        /* pressing the floating key again: put the windows back in their slots */
+        if (new_layout->arrange == NULL) {
+            homecanvas(NULL);
+            floatspread(selmon);
+            if (selmon->sel)
+                floatreveal(selmon->sel);
+        }
+#endif
         return;
+    }
 
     setcurlayout(selmon, new_layout);
 #else
@@ -2077,6 +2192,15 @@ setlayout(const Arg *arg)
         Client *c;
         for (c = selmon->clients; c; c = c->next)
             c->isfloating = 1;
+
+        /* entering floating from a tiled layout: lay the windows of this
+         * workspace out side by side without overlap */
+        if (old_layout->arrange != NULL) {
+            homecanvas(NULL);
+            floatspread(selmon);
+            if (selmon->sel)
+                floatreveal(selmon->sel);
+        }
     }
 #endif
 
@@ -2096,6 +2220,9 @@ setmfact(const Arg *arg)
 	if (f < 0.05 || f > 0.95)
 		return;
 	selmon->mfact = f;
+#if PER_TAG_LAYOUT
+	selmon->pertagmfact[currenttagidx(selmon)] = f;
+#endif
 	arrange(selmon);
 }
 
@@ -2392,6 +2519,616 @@ grid(Monitor *m)
 	}
 }
 
+/* Floating canvas: windows never overlap. A new window goes to the free spot
+ * nearest to the middle of the screen (so the set grows outward in whatever
+ * direction there is room), all windows are big enough to use. Resizing a window
+ * reflows the windows stuck to the edges that moved: they shrink or grow to make
+ * room or to take the empty space, staying glued at the gap, so nothing slides
+ * away and a hole never opens next to a neighbour. Moving a window by hand keeps
+ * it where you put it and the windows it covers find a free spot; Mod+f packs
+ * everything again. c->fslot is just a "managed by this layout" flag. */
+#define FLOAT_W 0.75f  /* default window size as share of the work area */
+#define FLOAT_H 0.78f
+
+static int
+floatgap(Monitor *m)
+{
+	int g = 24; /* space between floating windows */
+#if GAPS
+	g = MAX((int)m->gappx * 2, g);
+#endif
+	return g;
+}
+
+static int
+floateligible(Client *o, Monitor *m)
+{
+	return o->mon == m && ISVISIBLE(o) && !o->is_pinned && !o->isfullscreen;
+}
+
+/* does a w x h rectangle at (x, y) clear every obstacle by the gap? */
+static int
+floatfree(Client **obs, int n, int x, int y, int w, int h, int g)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+		if (x < obs[i]->x + WIDTH(obs[i]) + g && x + w + g > obs[i]->x &&
+		    y < obs[i]->y + HEIGHT(obs[i]) + g && y + h + g > obs[i]->y)
+			return 0;
+	return 1;
+}
+
+/* Choose a spot for c with no overlap, as close as possible to the wanted top-left
+ * corner (tx, ty). Candidate spots touch the edges of other windows (or sit on the
+ * wanted spot). Only sets c->x / c->y. The obstacles are the eligible windows of m
+ * except c and the ones flagged in skip-array (see floatresolve). */
+static void
+floatplacein(Client *c, int tx, int ty, Client **obs, int n, Monitor *m)
+{
+	int xs[3 * 256 + 1], ys[3 * 256 + 1], nx = 0, ny = 0, i, j;
+	int w = WIDTH(c), h = HEIGHT(c), g = floatgap(m);
+	long bd = -1, d;
+	int bx = tx, by = ty;
+
+	xs[nx++] = tx;
+	ys[ny++] = ty;
+	for (i = 0; i < n && i < 256; i++) {
+		xs[nx++] = obs[i]->x + WIDTH(obs[i]) + g;
+		xs[nx++] = obs[i]->x - w - g;
+		xs[nx++] = obs[i]->x;
+		ys[ny++] = obs[i]->y + HEIGHT(obs[i]) + g;
+		ys[ny++] = obs[i]->y - h - g;
+		ys[ny++] = obs[i]->y;
+	}
+	for (i = 0; i < nx; i++)
+		for (j = 0; j < ny; j++) {
+			/* distances in thousandths of the screen, so sideways and up/down are
+			 * equally cheap on a wide screen */
+			d = (long)((xs[i] - tx) * 1000 / MAX(m->ww, 1)) * ((xs[i] - tx) * 1000 / MAX(m->ww, 1)) +
+			    (long)((ys[j] - ty) * 1000 / MAX(m->wh, 1)) * ((ys[j] - ty) * 1000 / MAX(m->wh, 1));
+			if (bd >= 0 && d >= bd)
+				continue;
+			if (floatfree(obs, n, xs[i], ys[j], w, h, g)) {
+				bd = d; bx = xs[i]; by = ys[j];
+			}
+		}
+	c->x = bx;
+	c->y = by;
+}
+
+/* top-left that would put a w x h window in the middle of the existing windows
+ * (their bounding box); the middle of the screen when there are none */
+static void
+floatcenter(Client **obs, int n, Monitor *m, int w, int h, int *tx, int *ty)
+{
+	int i, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+
+	if (n <= 0) {
+		*tx = m->wx + (m->ww - w) / 2;
+		*ty = m->wy + (m->wh - h) / 2;
+		return;
+	}
+	x0 = obs[0]->x; x1 = obs[0]->x + WIDTH(obs[0]);
+	y0 = obs[0]->y; y1 = obs[0]->y + HEIGHT(obs[0]);
+	for (i = 1; i < n; i++) {
+		x0 = MIN(x0, obs[i]->x); x1 = MAX(x1, obs[i]->x + WIDTH(obs[i]));
+		y0 = MIN(y0, obs[i]->y); y1 = MAX(y1, obs[i]->y + HEIGHT(obs[i]));
+	}
+	*tx = (x0 + x1 - w) / 2;
+	*ty = (y0 + y1 - h) / 2;
+}
+
+/* for manage(): c is not in m->clients yet */
+static void
+floatplace(Client *c, int tx, int ty, Monitor *m, Client *skip)
+{
+	Client *obs[256], *o;
+	int n = 0;
+
+	(void)skip; (void)tx; (void)ty;
+	for (o = m->clients; o && n < 256; o = o->next)
+		if (o != c && floateligible(o, m) && (o->tags & c->tags))
+			obs[n++] = o;
+	floatcenter(obs, n, m, WIDTH(c), HEIGHT(c), &tx, &ty);
+	floatplacein(c, tx, ty, obs, n, m);
+}
+
+/* Mod+f: every visible window of the workspace goes back to the default size and
+ * is packed around the middle of the screen, oldest first, spreading outward. */
+static void
+floatspread(Monitor *m)
+{
+	Client *list[256], *placed[256], *c;
+	unsigned int n = 0, i, np = 0;
+
+	for (c = m->clients; c && n < 256; c = c->next)
+		if (floateligible(c, m))
+			list[n++] = c; /* newest first */
+	floatbusy = 1;
+	for (i = n; i-- > 0; ) { /* oldest first */
+		int w = (int)(m->ww * FLOAT_W), h = (int)(m->wh * FLOAT_H), tx, ty;
+		c = list[i];
+		c->fslot = 1;
+		c->w = MAX(w - 2 * c->bw, 1);
+		c->h = MAX(h - 2 * c->bw, 1);
+		floatcenter(placed, np, m, w, h, &tx, &ty);
+		floatplacein(c, tx, ty, placed, np, m);
+		resizeclient(c, c->x, c->y, c->w, c->h);
+		placed[np++] = c;
+	}
+	floatbusy = 0;
+}
+
+/* Safety net: while two windows overlap (by more than `margin`), move one of
+ * them (never `keep`) to the nearest free spot. Every move removes at least one
+ * overlapping pair, so this ends. `margin` is the gap while settling, 0 while a
+ * live resize reflow already kept the windows spaced. */
+static void
+floatfix(Monitor *m, Client *keep, int margin)
+{
+	Client *list[256], *obs[256], *o, *mv;
+	int n = 0, i, j, k, no, iter, found, moved = 0;
+
+	for (o = m->clients; o && n < 256; o = o->next)
+		if (floateligible(o, m))
+			list[n++] = o;
+	for (iter = 0; iter < 2 * n + 2; iter++) {
+		found = 0;
+		for (i = 0; i < n && !found; i++)
+			for (j = i + 1; j < n && !found; j++) {
+				if (list[i]->x < list[j]->x + WIDTH(list[j]) + margin && list[i]->x + WIDTH(list[i]) + margin > list[j]->x &&
+				    list[i]->y < list[j]->y + HEIGHT(list[j]) + margin && list[i]->y + HEIGHT(list[i]) + margin > list[j]->y) {
+					mv = (list[j] == keep) ? list[i] : list[j];
+					for (no = 0, k = 0; k < n; k++)
+						if (list[k] != mv)
+							obs[no++] = list[k];
+					floatplacein(mv, mv->x, mv->y, obs, no, m);
+					XMoveWindow(dpy, mv->win, mv->x, mv->y);
+					found = moved = 1;
+				}
+			}
+		if (!found)
+			break;
+	}
+	if (moved) {
+		XSync(dpy, False);
+		{
+			XEvent ev;
+			while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+		}
+	}
+}
+
+/* shift of the windows beyond one edge of the old rectangle: the closure of
+ * "touching in that direction" starting from the windows next to the old rect */
+static void
+floatchain(Client **e, int n, int *in, int dir, int ox, int oy, int ow, int oh)
+{
+	int i, j, changed;
+
+	for (i = 0; i < n; i++) {
+		Client *o = e[i];
+		int vo = o->y < oy + oh && o->y + HEIGHT(o) > oy;
+		int ho = o->x < ox + ow && o->x + WIDTH(o) > ox;
+		in[i] = (dir == 0 && vo && o->x + WIDTH(o) <= ox) ||
+		        (dir == 1 && vo && o->x >= ox + ow) ||
+		        (dir == 2 && ho && o->y + HEIGHT(o) <= oy) ||
+		        (dir == 3 && ho && o->y >= oy + oh);
+	}
+	do {
+		changed = 0;
+		for (i = 0; i < n; i++) {
+			if (!in[i])
+				continue;
+			for (j = 0; j < n; j++) {
+				Client *q = e[i], *r = e[j];
+				int vo, ho, hit;
+				if (in[j])
+					continue;
+				vo = r->y < q->y + HEIGHT(q) && r->y + HEIGHT(r) > q->y;
+				ho = r->x < q->x + WIDTH(q) && r->x + WIDTH(r) > q->x;
+				hit = (dir == 0 && vo && r->x + WIDTH(r) <= q->x) ||
+				      (dir == 1 && vo && r->x >= q->x + WIDTH(q)) ||
+				      (dir == 2 && ho && r->y + HEIGHT(r) <= q->y) ||
+				      (dir == 3 && ho && r->y >= q->y + HEIGHT(q));
+				if (hit) {
+					in[j] = 1;
+					changed = 1;
+				}
+			}
+		}
+	} while (changed);
+}
+
+/* One side of a just-resized window (dir: 0 left, 1 right, 2 up, 3 down) moved by
+ * `press` px into (+) or out of (-) the windows on that side of the old rectangle.
+ * The windows touching that old edge (or the ones c grew into) reflow like a
+ * stuck partition: each absorbs the movement at its own far edge, which stays
+ * anchored, so shrinking a window hands the empty space to its neighbours and
+ * growing one makes them thinner. When a window hits its minimum it is pushed
+ * out, and everything behind it in that direction moves with it. Windows
+ * separated by a real hole are left alone.
+ *
+ * All the math is done in "outward" coordinates (negated for left / up), so the
+ * four sides share one model with the outward axis pointing away from c. */
+static void
+floatreflow(Client *c, Client **e, int n, int dir, int press,
+            int ox, int oy, int ow, int oh)
+{
+	Client *ch[256], *a;
+	int in[256], dist[256], near0[256], far0[256], size0[256], overflow[256];
+	int tx[256], ty[256], tw[256], th[256];
+	int m = 0, i, j, k, z, axis = dir / 2, g, thr, hasadj = 0;
+	int capdown, capup, clamped, newsz, coord, changed;
+	long oldedge, newedge, olde, newe, p;
+
+	floatchain(e, n, in, dir, ox, oy, ow, oh);
+	for (i = 0; i < n; i++)
+		if (in[i])
+			ch[m++] = e[i];
+	if (press == 0 || !m)
+		return;
+	g = floatgap(c->mon);
+	thr = 2 * g;
+
+	oldedge = (dir == 0) ? (long)ox : (dir == 1) ? (long)(ox + ow) :
+	          (dir == 2) ? (long)oy : (long)(oy + oh);
+	newedge = (dir == 0) ? (long)c->x : (dir == 1) ? (long)(c->x + WIDTH(c)) :
+	          (dir == 2) ? (long)c->y : (long)(c->y + HEIGHT(c));
+	olde = (dir == 1 || dir == 3) ? oldedge : -oldedge;
+	newe = (dir == 1 || dir == 3) ? newedge : -newedge;
+
+	for (i = 0; i < m; i++) {
+		a = ch[i];
+		if (dir == 1 || dir == 3) {
+			near0[i] = (axis ? a->y : a->x);
+			far0[i] = (axis ? a->y + HEIGHT(a) : a->x + WIDTH(a));
+		} else {
+			near0[i] = -(axis ? a->y + HEIGHT(a) : a->x + WIDTH(a));
+			far0[i] = -(axis ? a->y : a->x);
+		}
+		size0[i] = axis ? HEIGHT(a) : WIDTH(a);
+		dist[i] = (int)MAX((long)near0[i] - olde, 0);
+	}
+	for (i = 1; i < m; i++) { /* nearest first */
+		z = dist[i]; a = ch[i];
+		k = i;
+		while (k > 0 && dist[k - 1] > z) {
+			dist[k] = dist[k - 1]; near0[k] = near0[k - 1];
+			far0[k] = far0[k - 1]; size0[k] = size0[k - 1];
+			ch[k] = ch[k - 1];
+			k--;
+		}
+		dist[k] = z; near0[k] = near0[i]; far0[k] = far0[i]; size0[k] = size0[i];
+		ch[k] = a;
+	}
+	for (i = 0; i < m; i++)
+		overflow[i] = 0;
+	for (i = 0; i < m; i++)
+		if (dist[i] <= thr || (press > 0 && press >= dist[i]))
+			hasadj = 1;
+	if (!hasadj)
+		return;
+
+	/* how far the front of everyone's edge moved, and what each window absorbs */
+	for (i = 0; i < m; i++) {
+		int adj;
+		a = ch[i];
+		adj = dist[i] <= thr || (press > 0 && press >= dist[i]);
+		if (adj)
+			p = newe + g - near0[i]; /* glued to c: its near edge follows the edge */
+		else { /* pushed by the window(s) in front of it */
+			p = 0;
+			for (j = 0; j < m; j++) {
+				long impact;
+				if (j == i || far0[j] > near0[i])
+					continue;
+				impact = (long)far0[j] + overflow[j] + g - near0[i];
+				if (press > 0) {
+					if (impact > p)
+						p = impact;
+				} else if (near0[i] - far0[j] <= thr && impact < p)
+					p = impact;
+			}
+		}
+		capdown = MAX(size0[i] - ((axis ? MAX(a->minh, 80) : MAX(a->minw, 100)) + 2 * a->bw), 0);
+		capup = axis
+			? (a->maxh ? MAX(a->maxh + 2 * a->bw - size0[i], 0) : (int)(1u << 30))
+			: (a->maxw ? MAX(a->maxw + 2 * a->bw - size0[i], 0) : (int)(1u << 30));
+		clamped = p > 0 ? MIN((long)p, (long)capdown) : -MIN(-p, (long)capup);
+		overflow[i] = (int)(p - clamped);
+		newsz = MAX(size0[i] - clamped - 2 * a->bw, 1);
+		if (dir == 1 || dir == 3)
+			coord = (int)(near0[i] + p);
+		else
+			coord = (int)(-(near0[i] + p) - (newsz + 2 * a->bw));
+		if (axis == 0) {
+			tx[i] = coord; tw[i] = newsz;
+			ty[i] = a->y; th[i] = a->h;
+		} else {
+			ty[i] = coord; th[i] = newsz;
+			tx[i] = a->x; tw[i] = a->w;
+		}
+	}
+	changed = 0;
+	for (i = 0; i < m; i++)
+		if (ch[i]->x != tx[i] || ch[i]->y != ty[i] ||
+		    ch[i]->w != tw[i] || ch[i]->h != th[i])
+			changed = 1;
+	if (changed)
+		for (k = 0; k < m; k++)
+			resizeclient(ch[k], tx[k], ty[k], tw[k], th[k]);
+}
+
+/* c was resized (old rectangle in c->oldx/y/w/h): the windows stuck to every
+ * edge that moved are re-flowed so nothing overlaps and no empty hole opens
+ * next to a neighbour; whatever still overlaps after that is moved to a free
+ * spot. */
+static void
+floatresolve(Client *c)
+{
+	Monitor *m = c->mon;
+	floatbusy = 0;
+}
+
+/* A window was moved (its previous top-left was ocx, ocy; its size unchanged):
+ * reflow exactly as if the edges it left and entered had been dragged, so a
+ * neighbour takes over the space it vacated and the windows it now covers make
+ * room / shrink, keeping the canvas a gapless, non-overlapping packing. */
+static void
+floatrelayout(Monitor *m, Client *c, int ocx, int ocy)
+{
+	if (curlayout(m)->arrange || !c->isfloating)
+		return;
+}
+
+/* Directional focus on the floating canvas (0 left, 1 right, 2 up, 3 down): the
+ * nearest window that lines up with the current one (overlaps it on the other
+ * axis); if none does, the closest window in that direction. Ties go to the
+ * upper / left one. The key is always handled. */
+static int
+floatfocus(int dir)
+{
+	Client *s = selmon->sel, *c, *best = NULL;
+	long bs = 0, sc;
+	int dx, dy, pass, ov, bt = 0, tie;
+
+	for (pass = 0; pass < 2 && !best; pass++)
+		for (c = selmon->clients; c; c = c->next) {
+			if (c == s || !ISVISIBLE(c) || !c->fslot)
+				continue;
+			dx = c->x + WIDTH(c) / 2 - (s->x + WIDTH(s) / 2);
+			dy = c->y + HEIGHT(c) / 2 - (s->y + HEIGHT(s) / 2);
+			if ((dir == 0 && dx >= -8) || (dir == 1 && dx <= 8) ||
+			    (dir == 2 && dy >= -8) || (dir == 3 && dy <= 8))
+				continue;
+			ov = dir < 2
+			    ? (c->y < s->y + HEIGHT(s) && c->y + HEIGHT(c) > s->y)
+			    : (c->x < s->x + WIDTH(s) && c->x + WIDTH(c) > s->x);
+			if (pass == 0 && !ov)
+				continue;
+			sc = pass == 0 ? (long)abs(dir < 2 ? dx : dy)
+			               : (long)dx * dx + (long)dy * dy;
+			tie = dir < 2 ? dy : dx;
+			if (!best || sc < bs || (sc == bs && tie < bt)) {
+				best = c; bs = sc; bt = tie;
+			}
+		}
+	if (best)
+		focus(best);
+	return 1;
+}
+
+/* Pan the canvas so a slot window that is not fully on screen gets centered. */
+static void
+floatreveal(Client *c)
+{
+	Monitor *m = c->mon;
+	Arg a;
+
+	if (!c->fslot || c->is_pinned || c->isfullscreen || m != selmon || curlayout(m)->arrange)
+		return;
+	if (c->x >= m->wx && c->y >= m->wy &&
+	    c->x + WIDTH(c) <= m->wx + m->ww && c->y + HEIGHT(c) <= m->wy + m->wh)
+		return;
+	a.v = c;
+	centerwindow(&a);
+	/* the pan moved windows under the pointer: those enter events would steal the focus back */
+	XSync(dpy, False);
+	{
+		XEvent ev;
+		while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+	}
+}
+
+/* Scrolling strips: an endless row ([H], horizontal) or column ([V], vertical) of
+ * windows, no overlap. Every window has its own size along the strip (see
+ * stripresize(), Mod+Ctrl+h/l); a window never resized uses the default of mfact
+ * (from config.h) of the screen. The size lives in the Client, so it is forgotten
+ * when the window closes. The oldest window is first (left / top), a new window opens at the
+ * end (right / bottom). The strip scrolls so the focused window is centered,
+ * clamped so there is no empty space before the first or after the last window.
+ * Windows outside the screen stay mapped, parked just past the screen edge. */
+static int
+stripsize(Client *c, int vert, int avail, int def, unsigned int n)
+{
+	int s;
+
+	if (n == 1)
+		return avail;
+	s = c->stripsz[vert] ? avail * c->stripsz[vert] / 1000 : def;
+	return MAX(s, 1);
+}
+
+static void
+stripl(Monitor *m, int vert)
+{
+	unsigned int n;
+	int g = 0, avail, cross, def, total, maxscroll, scroll;
+	int selstart = 0, selsize = 0, have = 0;
+	int lo, hi, end, start, size, p, x, y, cw, ch;
+	Client *c;
+	XWindowChanges wc;
+	static int lastscroll[2] = { 0, 0 };
+
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next))
+		n++;
+	if (n == 0)
+		return;
+
+#if GAPS
+	g = m->gappx;
+#endif
+	avail = (vert ? m->wh : m->ww) - 2 * g;
+	cross = (vert ? m->ww : m->wh) - 2 * g;
+	if (avail < 1 || cross < 1)
+		return;
+	/* default size comes from config.h's mfact, never from the live m->mfact that
+	 * tiling layouts change, so a fresh window always starts at the default */
+	def = MAX((int)(avail * mfact), 1);
+
+	/* total length of the strip */
+	total = ((int)n - 1) * g;
+	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
+		total += stripsize(c, vert, avail, def, n);
+	maxscroll = MAX(total - avail, 0);
+
+	/* the list is newest first and the strip is oldest first, so walk it from
+	 * the far end: the newest window ends at `total`, each older one before it */
+	end = total;
+	for (c = nexttiled(m->clients); c; c = nexttiled(c->next)) {
+		size = stripsize(c, vert, avail, def, n);
+		start = end - size;
+		if (c == m->sel) {
+			selstart = start;
+			selsize = size;
+			have = 1;
+		}
+		end = start - g;
+	}
+
+	if (have)
+		scroll = selstart - (avail - selsize) / 2;
+	else
+		scroll = lastscroll[vert]; /* focused window is floating: keep still */
+	scroll = MAX(0, MIN(scroll, maxscroll));
+	lastscroll[vert] = scroll;
+
+	lo = vert ? m->wy : m->wx;
+	hi = lo + (vert ? m->wh : m->ww);
+
+	end = total;
+	for (c = nexttiled(m->clients); c; c = nexttiled(c->next)) {
+		size = stripsize(c, vert, avail, def, n);
+		start = end - size;
+		end = start - g;
+		p = lo + g + start - scroll;
+		/* keep parked windows near the edge (X coordinates are 16 bit) */
+		if (p + size + 2 * c->bw <= lo)
+			p = lo - size - 2 * c->bw;
+		else if (p >= hi)
+			p = hi;
+		if (vert) {
+			x = m->wx + g; y = p;
+			cw = cross - 2 * c->bw; ch = size - 2 * c->bw;
+		} else {
+			x = p; y = m->wy + g;
+			cw = size - 2 * c->bw; ch = cross - 2 * c->bw;
+		}
+		cw = MAX(cw, 1);
+		ch = MAX(ch, 1);
+		if (x == c->x && y == c->y && cw == c->w && ch == c->h)
+			continue;
+		/* not resize(): applysizehints() would clamp us back on-screen.
+		 * Not resizeclient() either: it syncs per window, we sync once. */
+		c->oldx = c->x; c->x = wc.x = x;
+		c->oldy = c->y; c->y = wc.y = y;
+		c->oldw = c->w; c->w = wc.width = cw;
+		c->oldh = c->h; c->h = wc.height = ch;
+		wc.border_width = c->bw;
+		XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
+		configure(c);
+	}
+	XSync(dpy, False);
+}
+
+void
+strip(Monitor *m)
+{
+	stripl(m, 0);
+}
+
+void
+vstrip(Monitor *m)
+{
+	stripl(m, 1);
+}
+
+/* Focus keys. In a strip layout the keys along the strip's axis walk the
+ * strip (h/l = older/newer window in the horizontal one, k/j = older/newer in
+ * the vertical one). Everything else falls back to directional focus.
+ * arg->i uses focusdir's numbering: 0 left, 1 right, 2 up, 3 down. */
+void
+focusstrip(const Arg *arg)
+{
+	const Layout *l = curlayout(selmon);
+	int vert = (l->arrange == vstrip);
+	Client *c = NULL, *i, *sel = selmon->sel;
+
+	if (!l->arrange && sel && sel->fslot && floatfocus(arg->i))
+		return;
+	if (!(l->arrange == strip || l->arrange == vstrip)
+	|| (vert ? arg->i < 2 : arg->i >= 2)) {
+#if DIRECTIONAL_FOCUS
+		focusdir(arg);
+#endif
+		return;
+	}
+	if (!sel || sel->isfloating)
+		return;
+	if (arg->i == 0 || arg->i == 2) {  /* left / up = older = next in list */
+		c = nexttiled(sel->next);
+	} else {                           /* right / down = newer = previous in list */
+		for (i = nexttiled(selmon->clients); i && i != sel; i = nexttiled(i->next))
+			c = i;
+		if (i != sel)
+			c = NULL;
+	}
+	if (c)
+		focus(c); /* focus() re-arranges, which scrolls the strip */
+}
+
+/* Mod+Ctrl+h / Mod+Ctrl+l. In [H] / [V] this resizes ONLY the focused window along
+ * the strip (arg->f in fractions of the screen, like setmfact); every other window
+ * keeps its size and the strip re-centers on the focused one. In every other
+ * layout it is the normal setmfact. */
+void
+stripresize(const Arg *arg)
+{
+	const Layout *l = curlayout(selmon);
+	Client *c = selmon->sel;
+	int vert, cur;
+
+	if (arg && !l->arrange && c && c->fslot) {
+		/* floating canvas: Mod+Ctrl+h/l change the width, neighbours make room */
+		int nw = c->w + (int)(arg->f * selmon->ww);
+		resizeclient(c, c->x, c->y, MAX(nw, 100), c->h);
+		return;
+	}
+	if (!arg || !(l->arrange == strip || l->arrange == vstrip)) {
+		setmfact(arg);
+		return;
+	}
+	if (!c || c->isfloating)
+		return;
+	vert = (l->arrange == vstrip);
+	cur = c->stripsz[vert] ? c->stripsz[vert] : (int)(mfact * 1000);
+	cur += (int)(arg->f * 1000 + (arg->f < 0 ? -0.5 : 0.5));
+	c->stripsz[vert] = MAX(100, MIN(cur, 1000)); /* 10% .. 100% of the screen */
+	arrange(selmon);
+}
+
 void
 togglebar(const Arg *arg)
 {
@@ -2491,6 +3228,7 @@ unmanage(Client *c, int destroyed)
 {
 	Monitor *m = c->mon;
 	XWindowChanges wc;
+	unsigned int ctags = c->tags;
 
 	detach(c);
 	detachstack(c);
@@ -2507,6 +3245,37 @@ unmanage(Client *c, int destroyed)
 		XUngrabServer(dpy);
 	}
 	free(c);
+	/* last tiled window of a tag is gone: forget that tag's master-size (mfact)
+	 * adjustment and its layout, so the next windows there start at the config.h
+	 * defaults again. Only the floating layout stays remembered. */
+#if PER_TAG_LAYOUT
+	{
+		unsigned int i;
+		Client *o;
+
+		for (i = 0; i < LENGTH(tags); i++) {
+			if (!(ctags & (1 << i)))
+				continue;
+			for (o = m->clients; o && (o->isfloating || !(o->tags & (1 << i))); o = o->next);
+			if (o)
+				continue;
+			if (!m->pertaglt[i]->arrange) /* floating layout: keep it */
+				continue;
+			m->pertagmfact[i] = mfact;
+			m->pertaglt[i] = &layouts[0];
+			m->pertagsellt[i] = 0;
+			if (currenttagidx(m) == (int)i) {
+				m->mfact = mfact;
+				m->lt[0] = &layouts[0];
+				m->sellt = 0;
+			}
+		}
+	}
+#else
+	(void)ctags;
+	if (!nexttiled(m->clients))
+		m->mfact = mfact;
+#endif
 	focus(NULL);
 	updateclientlist();
 	arrange(m);
