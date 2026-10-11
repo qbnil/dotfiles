@@ -5,7 +5,6 @@
 #if EXTRA_LAYOUTS
 static void bstack(Monitor *m);          /* master row on top, stack row below */
 static void centeredmaster(Monitor *m);  /* master in the middle, stack left+right */
-static void deck(Monitor *m);            /* master column + stack piled like monocle */
 #endif
 
 #if LAYOUT_CYCLE

@@ -117,46 +117,6 @@ centeredmaster(Monitor *m)
 	}
 }
 
-void
-deck(Monitor *m)
-{
-	int i, n, nm, g = extra_gap(m);
-	int x, y, w, h, mw, sx, sw, my, ch;
-	Client *c;
-
-	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
-	if (n == 0)
-		return;
-
-	x = m->wx + g;
-	y = m->wy + g;
-	w = m->ww - 2 * g;
-	h = m->wh - 2 * g;
-
-	nm = MIN(MAX(m->nmaster, 0), n);
-	if (n > nm) {
-		mw = nm ? (w - g) * m->mfact : 0;
-		sx = nm ? x + mw + g : x;
-		sw = nm ? w - mw - g : w;
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "D%d", n - nm);
-	} else {
-		mw = w;
-		sx = sw = 0;
-	}
-
-	my = y;
-	for (i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
-		if (i < nm) {
-			ch = (y + h - my - g * (nm - 1 - i)) / (nm - i);
-			resize(c, x, my, mw - 2 * c->bw, ch - 2 * c->bw, 0);
-			my += ch + g;
-		} else {
-			/* every stack client gets the same box; focus order decides who is on top */
-			resize(c, sx, y, sw - 2 * c->bw, h - 2 * c->bw, 0);
-		}
-	}
-}
-
 #endif /* EXTRA_LAYOUTS */
 
 #if LAYOUT_CYCLE

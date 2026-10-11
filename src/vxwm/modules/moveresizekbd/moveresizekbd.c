@@ -66,6 +66,10 @@ moveresize(const Arg *arg)
 
   Client *c = m->sel;
 
+  int ocx = c->x, ocy = c->y;   /* for the floating-canvas move reflow */
+  /* variables kept for historical context; not used in minimal float mode */
+  (void)ocx; (void)ocy;
+
   XRaiseWindow(dpy, c->win);
 
   if (selmon->lt[selmon->sellt]->arrange != NULL) {
@@ -114,10 +118,16 @@ moveresize(const Arg *arg)
           }
         }
       }
+
+      /* minimal float mode: no reflow on keyboard move/resize */
     }
 
     resize(c, nx, ny, nw, nh, True);
   }
+
+  /* floating canvas: a move reflows the edges it left / entered (like a resize),
+     a resize already reflowed inside resizeclient - settle any leftover overlap */
+
 
 #if ENHANCED_TOGGLE_FLOATING && RESTORE_SIZE_AND_POS_ETF
   if (c->isfloating) {

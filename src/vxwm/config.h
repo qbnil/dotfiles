@@ -163,8 +163,8 @@ static const Layout layouts[] = {
   { "[H]",      strip },   /* endless horizontal row, scrolls with focus (Mod+e) */
   { "[V]",      vstrip },  /* endless vertical column, scrolls with focus (Mod+r) */
 #if EXTRA_LAYOUTS
-  { "TTT",      bstack },
-  { "|M|",      centeredmaster },
+  { "[T]",      bstack },
+  { "[C]",      centeredmaster },
 #endif
 };
 

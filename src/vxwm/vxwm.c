@@ -296,11 +296,10 @@ static void tile(Monitor *m);
 static void grid(Monitor *m);
 static void floatspread(Monitor *m);
 static int floatgap(Monitor *m);
-static void floatreflow(Client *c, Client **e, int n, int dir, int press,
-                        int ox, int oy, int ow, int oh);
+
 static void floatresolve(Client *c);
 static void floatfix(Monitor *m, Client *keep, int margin);
-static void floatrelayout(Monitor *m, Client *c, int ocx, int ocy);
+
 static void floatreveal(Client *c);
 static void floatplace(Client *c, int tx, int ty, Monitor *m, Client *skip);
 static int floatfocus(int dir);
@@ -2702,44 +2701,7 @@ floatfix(Monitor *m, Client *keep, int margin)
 
 /* shift of the windows beyond one edge of the old rectangle: the closure of
  * "touching in that direction" starting from the windows next to the old rect */
-static void
-floatchain(Client **e, int n, int *in, int dir, int ox, int oy, int ow, int oh)
-{
-	int i, j, changed;
 
-	for (i = 0; i < n; i++) {
-		Client *o = e[i];
-		int vo = o->y < oy + oh && o->y + HEIGHT(o) > oy;
-		int ho = o->x < ox + ow && o->x + WIDTH(o) > ox;
-		in[i] = (dir == 0 && vo && o->x + WIDTH(o) <= ox) ||
-		        (dir == 1 && vo && o->x >= ox + ow) ||
-		        (dir == 2 && ho && o->y + HEIGHT(o) <= oy) ||
-		        (dir == 3 && ho && o->y >= oy + oh);
-	}
-	do {
-		changed = 0;
-		for (i = 0; i < n; i++) {
-			if (!in[i])
-				continue;
-			for (j = 0; j < n; j++) {
-				Client *q = e[i], *r = e[j];
-				int vo, ho, hit;
-				if (in[j])
-					continue;
-				vo = r->y < q->y + HEIGHT(q) && r->y + HEIGHT(r) > q->y;
-				ho = r->x < q->x + WIDTH(q) && r->x + WIDTH(r) > q->x;
-				hit = (dir == 0 && vo && r->x + WIDTH(r) <= q->x) ||
-				      (dir == 1 && vo && r->x >= q->x + WIDTH(q)) ||
-				      (dir == 2 && ho && r->y + HEIGHT(r) <= q->y) ||
-				      (dir == 3 && ho && r->y >= q->y + HEIGHT(q));
-				if (hit) {
-					in[j] = 1;
-					changed = 1;
-				}
-			}
-		}
-	} while (changed);
-}
 
 /* One side of a just-resized window (dir: 0 left, 1 right, 2 up, 3 down) moved by
  * `press` px into (+) or out of (-) the windows on that side of the old rectangle.
@@ -2752,114 +2714,7 @@ floatchain(Client **e, int n, int *in, int dir, int ox, int oy, int ow, int oh)
  *
  * All the math is done in "outward" coordinates (negated for left / up), so the
  * four sides share one model with the outward axis pointing away from c. */
-static void
-floatreflow(Client *c, Client **e, int n, int dir, int press,
-            int ox, int oy, int ow, int oh)
-{
-	Client *ch[256], *a;
-	int in[256], dist[256], near0[256], far0[256], size0[256], overflow[256];
-	int tx[256], ty[256], tw[256], th[256];
-	int m = 0, i, j, k, z, axis = dir / 2, g, thr, hasadj = 0;
-	int capdown, capup, clamped, newsz, coord, changed;
-	long oldedge, newedge, olde, newe, p;
 
-	floatchain(e, n, in, dir, ox, oy, ow, oh);
-	for (i = 0; i < n; i++)
-		if (in[i])
-			ch[m++] = e[i];
-	if (press == 0 || !m)
-		return;
-	g = floatgap(c->mon);
-	thr = 2 * g;
-
-	oldedge = (dir == 0) ? (long)ox : (dir == 1) ? (long)(ox + ow) :
-	          (dir == 2) ? (long)oy : (long)(oy + oh);
-	newedge = (dir == 0) ? (long)c->x : (dir == 1) ? (long)(c->x + WIDTH(c)) :
-	          (dir == 2) ? (long)c->y : (long)(c->y + HEIGHT(c));
-	olde = (dir == 1 || dir == 3) ? oldedge : -oldedge;
-	newe = (dir == 1 || dir == 3) ? newedge : -newedge;
-
-	for (i = 0; i < m; i++) {
-		a = ch[i];
-		if (dir == 1 || dir == 3) {
-			near0[i] = (axis ? a->y : a->x);
-			far0[i] = (axis ? a->y + HEIGHT(a) : a->x + WIDTH(a));
-		} else {
-			near0[i] = -(axis ? a->y + HEIGHT(a) : a->x + WIDTH(a));
-			far0[i] = -(axis ? a->y : a->x);
-		}
-		size0[i] = axis ? HEIGHT(a) : WIDTH(a);
-		dist[i] = (int)MAX((long)near0[i] - olde, 0);
-	}
-	for (i = 1; i < m; i++) { /* nearest first */
-		z = dist[i]; a = ch[i];
-		k = i;
-		while (k > 0 && dist[k - 1] > z) {
-			dist[k] = dist[k - 1]; near0[k] = near0[k - 1];
-			far0[k] = far0[k - 1]; size0[k] = size0[k - 1];
-			ch[k] = ch[k - 1];
-			k--;
-		}
-		dist[k] = z; near0[k] = near0[i]; far0[k] = far0[i]; size0[k] = size0[i];
-		ch[k] = a;
-	}
-	for (i = 0; i < m; i++)
-		overflow[i] = 0;
-	for (i = 0; i < m; i++)
-		if (dist[i] <= thr || (press > 0 && press >= dist[i]))
-			hasadj = 1;
-	if (!hasadj)
-		return;
-
-	/* how far the front of everyone's edge moved, and what each window absorbs */
-	for (i = 0; i < m; i++) {
-		int adj;
-		a = ch[i];
-		adj = dist[i] <= thr || (press > 0 && press >= dist[i]);
-		if (adj)
-			p = newe + g - near0[i]; /* glued to c: its near edge follows the edge */
-		else { /* pushed by the window(s) in front of it */
-			p = 0;
-			for (j = 0; j < m; j++) {
-				long impact;
-				if (j == i || far0[j] > near0[i])
-					continue;
-				impact = (long)far0[j] + overflow[j] + g - near0[i];
-				if (press > 0) {
-					if (impact > p)
-						p = impact;
-				} else if (near0[i] - far0[j] <= thr && impact < p)
-					p = impact;
-			}
-		}
-		capdown = MAX(size0[i] - ((axis ? MAX(a->minh, 80) : MAX(a->minw, 100)) + 2 * a->bw), 0);
-		capup = axis
-			? (a->maxh ? MAX(a->maxh + 2 * a->bw - size0[i], 0) : (int)(1u << 30))
-			: (a->maxw ? MAX(a->maxw + 2 * a->bw - size0[i], 0) : (int)(1u << 30));
-		clamped = p > 0 ? MIN((long)p, (long)capdown) : -MIN(-p, (long)capup);
-		overflow[i] = (int)(p - clamped);
-		newsz = MAX(size0[i] - clamped - 2 * a->bw, 1);
-		if (dir == 1 || dir == 3)
-			coord = (int)(near0[i] + p);
-		else
-			coord = (int)(-(near0[i] + p) - (newsz + 2 * a->bw));
-		if (axis == 0) {
-			tx[i] = coord; tw[i] = newsz;
-			ty[i] = a->y; th[i] = a->h;
-		} else {
-			ty[i] = coord; th[i] = newsz;
-			tx[i] = a->x; tw[i] = a->w;
-		}
-	}
-	changed = 0;
-	for (i = 0; i < m; i++)
-		if (ch[i]->x != tx[i] || ch[i]->y != ty[i] ||
-		    ch[i]->w != tw[i] || ch[i]->h != th[i])
-			changed = 1;
-	if (changed)
-		for (k = 0; k < m; k++)
-			resizeclient(ch[k], tx[k], ty[k], tw[k], th[k]);
-}
 
 /* c was resized (old rectangle in c->oldx/y/w/h): the windows stuck to every
  * edge that moved are re-flowed so nothing overlaps and no empty hole opens
@@ -2868,20 +2723,11 @@ floatreflow(Client *c, Client **e, int n, int dir, int press,
 static void
 floatresolve(Client *c)
 {
-	Monitor *m = c->mon;
+	(void)c;
 	floatbusy = 0;
 }
 
-/* A window was moved (its previous top-left was ocx, ocy; its size unchanged):
- * reflow exactly as if the edges it left and entered had been dragged, so a
- * neighbour takes over the space it vacated and the windows it now covers make
- * room / shrink, keeping the canvas a gapless, non-overlapping packing. */
-static void
-floatrelayout(Monitor *m, Client *c, int ocx, int ocy)
-{
-	if (curlayout(m)->arrange || !c->isfloating)
-		return;
-}
+
 
 /* Directional focus on the floating canvas (0 left, 1 right, 2 up, 3 down): the
  * nearest window that lines up with the current one (overlaps it on the other
