@@ -454,11 +454,16 @@ build_user_make() {
 
 build_slock() {
     local dir="$DOTFILES_DIR/src/slock" log=/tmp/dotfiles-build-slock.log
+    local cur_user cur_group
+    cur_user="$(id -un)"
+    cur_group="$(id -gn)"
     print_status "Building slock..."
-    if ( cd "$dir"          && { make clean >/dev/null 2>&1 || true; }          && make -j"$JOBS" 2>&1 | tee "$log"          && sudo make PREFIX=/usr/local install 2>&1 | tee -a "$log" ); then
+    if ( cd "$dir"          && { [ -f config.h.bak ] || cp config.h config.h.bak; }          && sed -i "s/^static const char \*user  = .*/static const char *user  = \"${cur_user}\";/" config.h          && sed -i "s/^static const char \*group = .*/static const char *group = \"${cur_group}\";/" config.h          && { make clean >/dev/null 2>&1 || true; }          && make -j"$JOBS" 2>&1 | tee "$log"          && sudo make PREFIX=/usr/local install 2>&1 | tee -a "$log"          && cp config.h.bak config.h && rm -f config.h.bak ); then
         print_success "slock -> /usr/local/bin/slock"
         rm -f "$log"
     else
+        # restore config on failure
+        [ -f config.h.bak ] && cp config.h.bak config.h && rm -f config.h.bak
         print_error "slock build failed; full log: $log"
         tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
         FAILED_BUILDS+=("slock")
