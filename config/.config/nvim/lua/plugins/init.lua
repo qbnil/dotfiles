@@ -12,6 +12,7 @@ local modules = {
 	"mini",
 	"fidget",
 	"trouble",
+	"quicker",
 	"testing",
 	"coderabbit",
 	"tiny",

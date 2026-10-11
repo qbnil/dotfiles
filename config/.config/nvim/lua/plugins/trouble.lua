@@ -10,17 +10,9 @@ return {
 
 			vim.keymap.set("n", "<leader>td", "<cmd>Trouble todo toggle<cr>", { silent = true, desc = "Trouble todos" })
 
-			vim.api.nvim_create_autocmd("BufRead", {
-				group = vim.api.nvim_create_augroup("TroubleQuickfix", { clear = true }),
-				callback = function(ev)
-					if vim.bo[ev.buf].buftype == "quickfix" then
-						vim.schedule(function()
-							pcall(vim.cmd.cclose)
-							vim.cmd([[Trouble qflist open]])
-						end)
-					end
-				end,
-			})
+			-- The quickfix window is now owned by quicker.nvim (an editable
+			-- list), so we no longer redirect every :copen to Trouble. Use
+			-- :Trouble qflist if you want Trouble's rendering of the list.
 		end,
 	},
 }

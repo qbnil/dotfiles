@@ -41,3 +41,4 @@ require("lazy").setup("plugins", {
 
 require("config.keymaps")
 require("config.autocmds")
+require("config.agent_review").setup()

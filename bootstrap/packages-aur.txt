@@ -7,3 +7,4 @@ ttf-times-new-roman
 waterfox-bin
 woeusb-ng
 yay-bin
+opencode-beta
