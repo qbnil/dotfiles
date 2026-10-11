@@ -6,6 +6,14 @@
  *   - tiled windows are exchanged in the client list, so whichever tiling
  *     layout is active simply re-arranges them in their new order;
  *   - floating windows exchange their on-screen geometry (position + size).
+ *
+ * The wrap-around term (below) makes a window a screen-width away count as if
+ * it were the neighbour on the opposite side, which is what lets the classic
+ * tile layout cycle at its edges. It only makes sense there: in the scrolling
+ * strips the windows sit on a straight line, and the wrap makes the window on
+ * one side score exactly like the real neighbour on the other (with the
+ * default mfact of 0.5 the distances even cancel out), so Mod+Shift+h/l would
+ * swap the wrong way. Keep it for tile, drop it everywhere else.
  */
 void
 swapdir(const Arg *arg)
@@ -13,14 +21,15 @@ swapdir(const Arg *arg)
         Client *s = selmon->sel, *f = NULL, *c, *next, *p;
         unsigned int score = -1;
         unsigned int client_score;
-        int dist;
+        int dist, span;
         int dirweight = 20;
-        int isfloating;
+        int isfloating, wrap;
 
         if (!s)
                 return;
 
         isfloating = s->isfloating || curlayout(selmon)->arrange == NULL;
+        wrap = (curlayout(selmon)->arrange == tile);
 
         next = s->next;
         if (!next)
@@ -34,27 +43,31 @@ swapdir(const Arg *arg)
                 switch (arg->i) {
                 case 0: // left
                         dist = s->x - c->x - c->w;
+                        span = s->mon->ww;
                         client_score =
-                                dirweight * MIN(abs(dist), abs(dist + s->mon->ww)) +
+                                dirweight * (wrap ? MIN(abs(dist), abs(dist + span)) : abs(dist)) +
                                 abs(s->y - c->y);
                         break;
                 case 1: // right
                         dist = c->x - s->x - s->w;
+                        span = s->mon->ww;
                         client_score =
-                                dirweight * MIN(abs(dist), abs(dist + s->mon->ww)) +
+                                dirweight * (wrap ? MIN(abs(dist), abs(dist + span)) : abs(dist)) +
                                 abs(c->y - s->y);
                         break;
                 case 2: // up
                         dist = s->y - c->y - c->h;
+                        span = s->mon->wh;
                         client_score =
-                                dirweight * MIN(abs(dist), abs(dist + s->mon->wh)) +
+                                dirweight * (wrap ? MIN(abs(dist), abs(dist + span)) : abs(dist)) +
                                 abs(s->x - c->x);
                         break;
                 default:
                 case 3: // down
                         dist = c->y - s->y - s->h;
+                        span = s->mon->wh;
                         client_score =
-                                dirweight * MIN(abs(dist), abs(dist + s->mon->wh)) +
+                                dirweight * (wrap ? MIN(abs(dist), abs(dist + span)) : abs(dist)) +
                                 abs(c->x - s->x);
                         break;
                 }
