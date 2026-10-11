@@ -3060,8 +3060,7 @@ unfocus(Client *c, int setfocus)
 	grabbuttons(c, 0);
 	XSetWindowBorder(dpy, c->win, scheme[SchemeNorm][ColBorder].pixel);
 #if OPACITY
-	if (opacity_enabled)
-		opacity_apply(c, opacity_for(c, 0));
+	opacity_unfocus(c);
 #endif
 	if (setfocus) {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);

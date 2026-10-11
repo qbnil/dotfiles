@@ -115,8 +115,9 @@ static const char *occupiedtags[] = { "1+", "2+", "3+", "4+", "5+", "6+", "7+", 
 
 #if OPACITY
 /* Transparency defaults, in percent, where 100 is fully opaque. These apply to
-   any window you have not adjusted by hand. A window you do adjust keeps its own
-   value across focus and tag changes. Needs a compositor running client-side
+   any window you have not adjusted by hand. Manual tweaks to the focused window
+   (Super+Shift+Up/Down) are temporary: the window reverts to the unfocused
+   level as soon as it loses focus. Needs a compositor running client-side
    (xcompmgr -c or vcompmgr -c) for any of it to be visible. */
 static const unsigned int opacity_focused   = 100; /* focused windows   */
 static const unsigned int opacity_unfocused = 85;  /* unfocused windows */

@@ -7,9 +7,10 @@
  *   - focused   (config.h opacity_focused)   set in focus()
  *   - unfocused (config.h opacity_unfocused) set in unfocus()
  *
- * A window that the user has adjusted by hand keeps its own value; the global
- * values only apply to windows that were never touched. Otherwise alt-tabbing
- * back and forth would keep resetting a per-window choice.
+ * Manual tweaks to the focused window (Super+Shift+Up/Down) are temporary:
+ * they apply while the window has focus, and unfocus() drops them so the
+ * window falls back to the global unfocused level. Nothing set by hand
+ * sticks across focus switches.
  */
 
 #include <X11/Xatom.h>
@@ -65,6 +66,19 @@ opacity_for(Client *c, int focused)
 	if (c->opacity_set)
 		return c->opacity;
 	return focused ? opacity_focused_v : opacity_unfocused_v;
+}
+
+/* A focused-window tweak is temporary: when the window loses focus, drop any
+   per-window value so it falls back to the global opacity_unfocused level.
+   Refocusing then naturally picks up the global opacity_focused level again. */
+static void
+opacity_unfocus(Client *c)
+{
+	if (!c)
+		return;
+	c->opacity_set = 0;
+	if (opacity_enabled)
+		opacity_apply(c, opacity_unfocused_v);
 }
 
 /* re-apply the right value to every visible window, after a global change */

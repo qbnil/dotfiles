@@ -7,7 +7,10 @@ return {
 			local lualine = require("lualine")
 			lualine.setup({
 				options = {
-					component_separators = "",
+					-- rectangular: solid blocks between sections, thin vertical
+					-- lines between components. No powerline/triangle glyphs.
+					component_separators = { left = "│", right = "│" },
+					section_separators = { left = "█", right = "█" },
 				},
 				sections = {
 					lualine_a = { "mode" },
