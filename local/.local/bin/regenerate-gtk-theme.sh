@@ -32,6 +32,17 @@ print(f'C5={c[\"colors\"][\"color5\"]}')
 print(f'C6={c[\"colors\"][\"color6\"]}')
 print(f'C7={c[\"colors\"][\"color7\"]}')
 print(f'C8={c[\"colors\"][\"color8\"]}')
+# Cut/copy indicator colors: hue-rotate the theme accent to red (cut) and
+# green (copy) so they always come from the current wallpaper, yet stay
+# semantically recognisable. Exposed as thunar_cut_color / thunar_copy_color.
+import colorsys
+def _rot(hex_col, hue_target):
+    r, g, b = (int(hex_col[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    r2, g2, b2 = colorsys.hsv_to_rgb(hue_target, s, v)
+    return '#%02x%02x%02x' % (round(r2 * 255), round(g2 * 255), round(b2 * 255))
+print(f'CUT={_rot(c[\"colors\"][\"color6\"], 0.0)}')
+print(f'COPY={_rot(c[\"colors\"][\"color6\"], 120.0 / 360.0)}')
 "
 }
 
@@ -181,12 +192,20 @@ headerbar, .headerbar {
     color: $FG;
     border-color: $C8;
 }
+/* Context menus (Thunar right-click and everywhere else): a raised panel
+   that clearly stands out from the window background. Palette-driven so it
+   follows the wallpaper — light enough to be visible against $BG but never
+   identical to the file-view background. */
 menu {
-    background-color: $BG;
+    background-color: mix($BG, $FG, 0.10);
+    background-image: none;
     color: $FG;
+    padding: 4px 0;
+    border: 1px solid mix($BG, $FG, 0.25);
+    box-shadow: 0 3px 12px alpha(#000000, 0.55);
 }
 menuitem {
-    background-color: $BG;
+    background-color: transparent;
     color: $FG;
 }
 /* Dropdown items: faint highlight + underline only, no box/outline.
@@ -207,10 +226,15 @@ menu menuitem {
     border-bottom: 2px solid transparent;
 }
 menu menuitem:hover, menu menuitem:selected {
-    background-color: mix($BG, $FG, 0.12);
+    background-color: mix($BG, $FG, 0.20);
     color: $FG;
     border: none;
     border-bottom: 2px solid $C4;
+}
+/* Menu separators: thin palette-tinted lines */
+menu separator {
+    min-height: 1px;
+    background-color: mix($BG, $FG, 0.18);
 }
 
 /* Tabs: underline on the selected tab only */
@@ -255,8 +279,10 @@ paned > separator {
 }
 
 .popover {
-    background-color: $BG;
+    background-color: mix($BG, $FG, 0.10);
+    background-image: none;
     color: $FG;
+    border: 1px solid mix($BG, $FG, 0.25);
 }
 dialog {
     background-color: $BG;
@@ -535,6 +561,61 @@ filechooser button.combo:hover {
     background-color: mix($BG, $FG, 0.08);
     border-color: $C4;
 }
+
+/* ================================================================
+   Thunar-specific rules ($C6 = accent, $CUT/$COPY = hue-rotated
+   accent). Kept here so they follow every wallpaper change and stay
+   compatible with the patched Thunar binary (looks up the colors by
+   name via gtk_style_context_lookup_color).
+   ================================================================ */
+
+/* --- 1. Hide the loading spinner Thunar 4.20 puts at the right end
+   of its menu bar. Scoped to Thunar windows only. --- */
+window.thunar menubar > menuitem:last-child {
+    padding: 0;
+    margin: 0;
+    opacity: 0.0;
+}
+window.thunar menubar > menuitem:last-child spinner {
+    opacity: 0.0;
+    -gtk-icon-source: none;
+    min-width: 0;
+    min-height: 0;
+}
+window.thunar menubar spinner:checked {
+    opacity: 0.0;
+}
+
+/* --- 2. Bright file selection: the palette accent with dark text.
+   Covers the icon view (XfceIconView), the detailed/compact list views
+   (GtkTreeView) and the Places sidebar, in every window state. --- */
+window.thunar .standard-view *:selected,
+window.thunar .standard-view *:selected:focus,
+window.thunar .standard-view *:selected:hover,
+window.thunar .standard-view *:selected:active,
+window.thunar .standard-view *:selected:backdrop {
+    background-color: $C6;
+    background-image: none;
+    color: $BG;
+    border: none;
+    outline: none;
+}
+window.thunar treeview:selected,
+window.thunar treeview:selected:focus,
+window.thunar treeview:selected:hover,
+window.thunar treeview:selected:active,
+window.thunar treeview:selected:backdrop {
+    background-color: $C6;
+    background-image: none;
+    color: $BG;
+    border: none;
+    outline: none;
+}
+
+/* --- 3. Cut / copy indicator colors for the patched Thunar.
+   Edit these two lines to override the palette-derived defaults. --- */
+@define-color thunar_cut_color $CUT;    /* files marked CUT   */
+@define-color thunar_copy_color $COPY;  /* files marked COPIED */
 /* >>> thunar-menu-and-rightclick (managed block) >>> */
 /* --- Context (right-click) menu: lighter than the window background, an accent
    border and a solid accent highlight, so it never blends into Thunar.
