@@ -15,6 +15,11 @@
 **/.zig-cache/
 **/config.h.bak
 src/*/config.h.bak
+# makepkg leftovers (src/thunar)
+src/thunar/src/
+src/thunar/pkg/
+src/thunar/*.pkg.tar.*
+src/thunar/*.tar.bz2
 
 # Secrets
 **/secrets.sh

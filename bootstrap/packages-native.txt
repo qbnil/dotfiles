@@ -69,3 +69,4 @@ xorg-xrefresh
 xsettingsd
 zip
 zsh-syntax-highlighting
+x11-ssh-askpass

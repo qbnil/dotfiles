@@ -15,14 +15,18 @@ vim.keymap.set("n", "U", "<C-r>", { desc = "Redo" })
 
 vim.keymap.set("n", "<Esc>", ":nohl<CR>", { silent = true, desc = "Clear search highlights" })
 
-vim.keymap.set("n", "<C-h>", ":wincmd h<CR>", { silent = true, desc = "Move to left split" })
-vim.keymap.set("n", "<C-j>", ":wincmd j<CR>", { silent = true, desc = "Move to below split" })
-vim.keymap.set("n", "<C-k>", ":wincmd k<CR>", { silent = true, desc = "Move to above split" })
-vim.keymap.set("n", "<C-l>", ":wincmd l<CR>", { silent = true, desc = "Move to right split" })
+-- vim.keymap.set("n", "<C-j>", ":wincmd j<CR>", { silent = true, desc = "Move to below split" })
+-- vim.keymap.set("n", "<C-h>", ":wincmd h<CR>", { silent = true, desc = "Move to left split" })
+-- vim.keymap.set("n", "<C-k>", ":wincmd k<CR>", { silent = true, desc = "Move to above split" })
+-- vim.keymap.set("n", "<C-l>", ":wincmd l<CR>", { silent = true, desc = "Move to right split" })
 vim.keymap.set("n", "<leader>rr", ":wincmd r<CR>", { silent = true, desc = "Rotate split buffers" })
 
 vim.keymap.set("n", "<leader>w", ":w<cr>", { silent = true, noremap = true, desc = "Save current file" })
 vim.keymap.set({ "n", "t" }, "<leader>q", ":q<cr>", { silent = true, noremap = true, desc = "Quit current buffer" })
+vim.keymap.set("n", "<leader>Q", function()
+	vim.cmd("wall")
+	vim.cmd("qa")
+end, { silent = true, desc = "Save all changes and quit Neovim" })
 
 vim.keymap.set(
 	"n",
@@ -49,6 +53,7 @@ vim.keymap.set("v", "<leader>y", '"+y', { desc = "Yank selection to system clipb
 vim.keymap.set("n", "<leader>Y", '"+Y', { desc = "Yank line to system clipboard" })
 
 vim.keymap.set("n", "<leader>v", ":vsplit<CR>", { silent = true, desc = "Vertical split" })
+vim.keymap.set("n", "<leader>h", ":split<CR>", { silent = true, desc = "Vertical split" })
 
 vim.keymap.set("v", "<C-j>", ":m '>+1<CR>gv=gv", { silent = true, desc = "Move selection down" })
 vim.keymap.set("v", "<C-k>", ":m '<-2<CR>gv=gv", { silent = true, desc = "Move selection up" })
@@ -99,3 +104,43 @@ end, { desc = "Copy file path" })
 vim.keymap.set("v", "<leader>cp", function()
 	copy_ref({ visual = true })
 end, { desc = "Copy file path with line range" })
+
+-- Window resizing: Ctrl+Shift+h/j/k/l move the window border in that direction
+-- (Ctrl+Shift+l = border goes right, Ctrl+Shift+h = left, ...), whichever side of the window
+-- the border is on. <leader>= makes all windows equal. A count multiplies the step
+-- (3<C-S-l>).
+local function resize(dir, step)
+	local count = vim.v.count1
+	local cur = vim.fn.winnr()
+	local amount = step * count
+	if dir == "h" or dir == "l" then
+		local has_right = vim.fn.winnr("l") ~= cur
+		-- the border we move is the right one when there is a neighbour on the right
+		local grow = (dir == "l") == has_right
+		if not has_right and vim.fn.winnr("h") == cur then
+			return
+		end
+		vim.cmd(("vertical resize %s%d"):format(grow and "+" or "-", amount))
+	else
+		local has_below = vim.fn.winnr("j") ~= cur
+		local grow = (dir == "j") == has_below
+		if not has_below and vim.fn.winnr("k") == cur then
+			return
+		end
+		vim.cmd(("resize %s%d"):format(grow and "+" or "-", amount))
+	end
+end
+
+vim.keymap.set("n", "<C-h>", function()
+	resize("h", 4)
+end, { silent = true, desc = "Resize: border left" })
+vim.keymap.set("n", "<C-l>", function()
+	resize("l", 4)
+end, { silent = true, desc = "Resize: border right" })
+vim.keymap.set("n", "<C-j>", function()
+	resize("j", 2)
+end, { silent = true, desc = "Resize: border down" })
+vim.keymap.set("n", "<C-k>", function()
+	resize("k", 2)
+end, { silent = true, desc = "Resize: border up" })
+vim.keymap.set("n", "<leader>=", "<C-w>=", { silent = true, desc = "Equalize window sizes" })

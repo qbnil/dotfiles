@@ -1,0 +1,51 @@
+# Maintainer: kent (local build, patched)
+# Patched Thunar: visibly distinguishes cut vs copied files using the
+# active pywal theme colors (thunar_cut_color / thunar_copy_color),
+# which thunar-icon-renderer.c looks up at render time.
+#
+# Build/install:  makepkg -si        (from this directory)
+# The CSS side lives in ../local/.local/bin/regenerate-gtk-theme.sh
+# (selection highlight + the two @define-color lines).
+
+pkgname=thunar
+pkgver=4.20.10
+pkgrel=2
+pkgdesc="Modern, fast and easy-to-use file manager for Xfce (patched: cut/copy icon tint from pywal theme)"
+arch=('x86_64')
+url="https://docs.xfce.org/xfce/thunar/start"
+license=('GPL-2.0-or-later' 'LGPL-2.1-only')
+groups=('xfce4')
+depends=('desktop-file-utils' 'libexif' 'hicolor-icon-theme' 'libnotify'
+         'pcre2' 'libgudev' 'exo' 'libxfce4util' 'libxfce4ui')
+makedepends=('base-devel')
+source=("https://archive.xfce.org/src/xfce/$pkgname/${pkgver%.*}/$pkgname-$pkgver.tar.bz2"
+        "thunar-cut-copy-colors.patch")
+sha256sums=('a5a32b51028dc821155e44cdec025fe70398bae193c619ae6ba8b1babf6f49f1'
+            'SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  patch -p1 < "$srcdir/thunar-cut-copy-colors.patch"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --enable-gio-unix \
+    --enable-gudev \
+    --enable-notifications \
+    --enable-exif \
+    --disable-debug \
+    --disable-gtk-doc \
+    --disable-introspection
+  make
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set ts=2 sw=2 et:

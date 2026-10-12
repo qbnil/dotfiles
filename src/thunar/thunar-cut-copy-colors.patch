@@ -1,0 +1,278 @@
+diff --git a/thunar/thunar-clipboard-manager.c b/thunar/thunar-clipboard-manager.c
+index 2a1fcde..5f67ca0 100644
+--- a/thunar/thunar-clipboard-manager.c
++++ b/thunar/thunar-clipboard-manager.c
+@@ -660,6 +660,63 @@ thunar_clipboard_manager_has_cutted_file (ThunarClipboardManager *manager,
+ 
+ 
+ 
++/**
++ * thunar_clipboard_manager_has_copied_file:
++ * @manager : a #ThunarClipboardManager.
++ * @file    : a #ThunarFile.
++ *
++ * Checks whether @file was copied to the given @manager earlier.
++ *
++ * Return value: %TRUE if @file is on the copy list of @manager.
++ **/
++gboolean
++thunar_clipboard_manager_has_copied_file (ThunarClipboardManager *manager,
++                                          const ThunarFile       *file)
++{
++  _thunar_return_val_if_fail (THUNAR_IS_CLIPBOARD_MANAGER (manager), FALSE);
++  _thunar_return_val_if_fail (THUNAR_IS_FILE (file), FALSE);
++
++  return (!manager->files_cutted && g_list_find (manager->files, file) != NULL);
++}
++
++
++
++/**
++ * thunar_clipboard_manager_clear_files:
++ * @manager : a #ThunarClipboardManager.
++ *
++ * Cancels the current cut/copy marker by removing all pending files
++ * from the clipboard and releasing the CLIPBOARD ownership (if the
++ * manager currently owns it). The #ThunarClipboardManager::changed
++ * signal is emitted once the ownership is released, so that all views
++ * redraw the affected files with their regular colors.
++ **/
++void
++thunar_clipboard_manager_clear_files (ThunarClipboardManager *manager)
++{
++  _thunar_return_if_fail (THUNAR_IS_CLIPBOARD_MANAGER (manager));
++
++  /* only the current clipboard owner can release the selection; if another
++   * application owns the clipboard, our file list has already been cleared
++   * by the clear_callback() and there is nothing to do here */
++  if (gtk_clipboard_get_owner (manager->clipboard) == G_OBJECT (manager)
++      && manager->files != NULL)
++    {
++      /* this invokes clear_callback() which releases the pending file
++       * references; the subsequent owner-change notification triggers
++       * the "changed" signal (which updates the paste action state) */
++      gtk_clipboard_clear (manager->clipboard);
++
++      /* if the X server does not support clipboard owner-change
++       * notifications, update the state manually (mirrors the logic
++       * used in transfer_files() and the paste handling) */
++      if (!gdk_display_supports_selection_notification (gtk_clipboard_get_display (manager->clipboard)))
++        thunar_clipboard_manager_owner_changed (manager->clipboard, NULL, manager);
++    }
++}
++
++
++
+ /**
+  * thunar_clipboard_manager_copy_files:
+  * @manager : a #ThunarClipboardManager.
+diff --git a/thunar/thunar-clipboard-manager.h b/thunar/thunar-clipboard-manager.h
+index ed341ce..a5327ea 100644
+--- a/thunar/thunar-clipboard-manager.h
++++ b/thunar/thunar-clipboard-manager.h
+@@ -48,6 +48,13 @@ gboolean
+ thunar_clipboard_manager_has_cutted_file (ThunarClipboardManager *manager,
+                                           const ThunarFile       *file);
+ 
++gboolean
++thunar_clipboard_manager_has_copied_file (ThunarClipboardManager *manager,
++                                          const ThunarFile       *file);
++
++void
++thunar_clipboard_manager_clear_files (ThunarClipboardManager *manager);
++
+ void
+ thunar_clipboard_manager_copy_files (ThunarClipboardManager *manager,
+                                      GList                  *files);
+diff --git a/thunar/thunar-icon-renderer.c b/thunar/thunar-icon-renderer.c
+index 2221682..ad26782 100644
+--- a/thunar/thunar-icon-renderer.c
++++ b/thunar/thunar-icon-renderer.c
+@@ -489,6 +489,57 @@ thunar_icon_renderer_color_lighten (cairo_t   *cr,
+ 
+ 
+ 
++static void
++thunar_icon_renderer_color_tint (cairo_t        *cr,
++                                 GdkRectangle   *icon_area,
++                                 GtkWidget      *widget,
++                                 const gchar    *color_name,
++                                 gdouble         alpha_value)
++{
++  cairo_pattern_t *source;
++  GtkStyleContext *context = gtk_widget_get_style_context (widget);
++  GdkRGBA          color;
++  gdouble          r, g, b;
++
++  /* built-in fallbacks (only used when the CSS variables are missing) */
++  if (g_strcmp0 (color_name, "thunar_cut_color") == 0)
++    {
++      r = 0.69;
++      g = 0.29;
++      b = 0.20;
++    }
++  else
++    {
++      r = 0.30;
++      g = 0.54;
++      b = 0.36;
++    }
++
++  if (gtk_style_context_lookup_color (context, color_name, &color))
++    {
++      r = color.red;
++      g = color.green;
++      b = color.blue;
++    }
++
++  cairo_save (cr);
++
++  /* tint only the icon pixels, never the cell/selection background */
++  cairo_rectangle (cr, icon_area->x, icon_area->y, icon_area->width, icon_area->height);
++  cairo_clip (cr);
++
++  source = cairo_pattern_reference (cairo_get_source (cr));
++  cairo_set_source_rgba (cr, r, g, b, alpha_value);
++  cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
++
++  cairo_mask (cr, source);
++
++  cairo_pattern_destroy (source);
++  cairo_restore (cr);
++}
++
++
++
+ static void
+ thunar_icon_renderer_render (GtkCellRenderer     *renderer,
+                              cairo_t             *cr,
+@@ -518,6 +569,8 @@ thunar_icon_renderer_render (GtkCellRenderer     *renderer,
+   gboolean                color_selected;
+   gboolean                color_lighten;
+   gboolean                is_expanded;
++  gboolean                cutted;
++  gboolean                copied;
+ 
+   if (G_UNLIKELY (icon_renderer->file == NULL))
+     return;
+@@ -597,10 +650,12 @@ thunar_icon_renderer_render (GtkCellRenderer     *renderer,
+     {
+       /* use a translucent icon to represent cutted and hidden files to the user */
+       clipboard = thunar_clipboard_manager_get_for_display (gtk_widget_get_display (widget));
+-      if (thunar_clipboard_manager_has_cutted_file (clipboard, icon_renderer->file) && thunar_file_is_writable (icon_renderer->file))
++      cutted = thunar_clipboard_manager_has_cutted_file (clipboard, icon_renderer->file) && thunar_file_is_writable (icon_renderer->file);
++      copied = thunar_clipboard_manager_has_copied_file (clipboard, icon_renderer->file);
++      if (cutted)
+         {
+-          /* 50% translucent for cutted files */
+-          alpha = 0.50;
++          /* heavily faded for cutted files so the cut state is obvious */
++          alpha = 0.35;
+         }
+       else if (thunar_file_is_hidden (icon_renderer->file))
+         {
+@@ -617,6 +672,13 @@ thunar_icon_renderer_render (GtkCellRenderer     *renderer,
+       thunar_gdk_cairo_set_source_pixbuf (cr, icon, icon_area.x, icon_area.y, scale_factor);
+       cairo_paint_with_alpha (cr, alpha);
+ 
++      /* tint cut/copied files with the theme colours so the two states are
++       * clearly different: cut = faded red ghost, copy = full + green wash */
++      if (G_LIKELY (cutted))
++        thunar_icon_renderer_color_tint (cr, &icon_area, widget, "thunar_cut_color", 0.60);
++      else if (G_LIKELY (copied))
++        thunar_icon_renderer_color_tint (cr, &icon_area, widget, "thunar_copy_color", 0.55);
++
+       /* check if we should render an insensitive icon */
+       if (G_UNLIKELY (gtk_widget_get_state_flags (widget) == GTK_STATE_FLAG_INSENSITIVE || !gtk_cell_renderer_get_sensitive (renderer)))
+         thunar_icon_renderer_color_insensitive (cr, widget);
+diff --git a/thunar/thunar-standard-view.c b/thunar/thunar-standard-view.c
+index 5ce651a..7ef6694 100644
+--- a/thunar/thunar-standard-view.c
++++ b/thunar/thunar-standard-view.c
+@@ -4271,12 +4271,61 @@ thunar_standard_view_queue_popup (ThunarStandardView *standard_view,
+ 
+ 
+ 
++/* helper for the "cancel cut/copy marker on deselection" feature:
++ * scans the current folder's model for files that are marked as cut or
++ * copied on the clipboard manager and cancels the marker if any are found */
++static void
++thunar_standard_view_cancel_cut_copy (ThunarStandardView *standard_view)
++{
++  ThunarClipboardManager *manager;
++  ThunarFile             *file;
++  GtkTreeIter             iter;
++  gboolean                found = FALSE;
++  gboolean                valid;
++
++  manager = thunar_clipboard_manager_get_for_display (gtk_widget_get_display (GTK_WIDGET (standard_view)));
++
++  /* only files shown in the current folder are candidates here: if the
++   * cut/copied files belong to a different folder (i.e. the user navigated
++   * away), the marker must survive so it can be pasted at the destination */
++  valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (standard_view->model), &iter);
++  while (valid)
++    {
++      file = thunar_standard_view_model_get_file (standard_view->model, &iter);
++      if (file != NULL)
++        {
++          if (thunar_clipboard_manager_has_cutted_file (manager, file)
++              || thunar_clipboard_manager_has_copied_file (manager, file))
++            found = TRUE;
++          g_object_unref (file);
++        }
++
++      if (found)
++        break;
++
++      valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (standard_view->model), &iter);
++    }
++
++  if (found)
++    {
++      /* clear the marker and repaint so the files revert to normal colors;
++       * "changed" will also disable the paste actions via the window */
++      thunar_clipboard_manager_clear_files (manager);
++      thunar_standard_view_queue_redraw (standard_view);
++    }
++
++  g_object_unref (G_OBJECT (manager));
++}
++
++
++
+ static void
+ _thunar_standard_view_selection_changed (ThunarStandardView *standard_view)
+ {
+   GtkTreeIter iter;
+   GList      *lp, *selected_thunar_files;
+   ThunarFile *file;
++  gboolean    had_selection;
+ 
+   _thunar_return_if_fail (THUNAR_IS_STANDARD_VIEW (standard_view));
+ 
+@@ -4288,6 +4337,11 @@ _thunar_standard_view_selection_changed (ThunarStandardView *standard_view)
+       standard_view->priv->new_files_closure = NULL;
+     }
+ 
++  /* remember whether anything was selected before, so we can detect a real
++   * user deselection (i.e. clicking empty space) further down; folder loads
++   * typically go from empty selection to empty selection and are skipped */
++  had_selection = (standard_view->priv->selected_files != NULL);
++
+   /* release the previously selected files */
+   thunar_g_list_free_full (standard_view->priv->selected_files);
+ 
+@@ -4315,6 +4369,12 @@ _thunar_standard_view_selection_changed (ThunarStandardView *standard_view)
+   /* and setup the new selected files list */
+   standard_view->priv->selected_files = selected_thunar_files;
+ 
++  /* if the user just deselected everything (e.g. clicked empty space) while
++   * the current folder holds files that are marked as cut/copied, cancel the
++   * cut/copy marker so the files revert to their normal colors again */
++  if (had_selection && selected_thunar_files == NULL)
++    thunar_standard_view_cancel_cut_copy (standard_view);
++
+   /* update the statusbar text */
+   thunar_standard_view_update_statusbar_text (standard_view);
+ 

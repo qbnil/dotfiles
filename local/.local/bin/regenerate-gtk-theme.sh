@@ -535,6 +535,57 @@ filechooser button.combo:hover {
     background-color: mix($BG, $FG, 0.08);
     border-color: $C4;
 }
+/* >>> thunar-menu-and-rightclick (managed block) >>> */
+/* --- Context (right-click) menu: lighter than the window background, an accent
+   border and a solid accent highlight, so it never blends into Thunar.
+   Everything comes from the pywal palette. --- */
+menu, .popup menu, .context-menu {
+    background-color: mix($BG, $FG, 0.16);
+    color: $FG;
+    border: 2px solid $C6;
+    border-radius: 0;
+    padding: 4px 0;
+    box-shadow: 0 6px 18px alpha(black, 0.55);
+}
+menu menuitem, .popup menu menuitem {
+    border-radius: 0;
+    background-color: transparent;
+    color: $FG;
+    border-bottom: 2px solid transparent;
+}
+menu menuitem:hover, menu menuitem:selected,
+.popup menu menuitem:hover, .popup menu menuitem:selected {
+    background-color: $C6;
+    color: $BG;
+    border-bottom: 2px solid $C6;
+}
+menu menuitem:hover *, menu menuitem:selected *,
+menu menuitem:hover label, menu menuitem:selected label {
+    color: $BG;
+}
+menu menuitem:disabled, menu menuitem:disabled label {
+    color: mix($FG, $BG, 0.45);
+}
+menu separator, .popup menu separator {
+    background-color: mix($BG, $FG, 0.35);
+    min-height: 1px;
+    margin: 4px 6px;
+}
+
+/* --- Selected files while the right-click menu is open ---
+   Thunar's icon renderer multiplies the icon with the view's background color
+   in the plain :active state whenever the view has lost focus (which is what
+   opening a menu does). The selection rules only match :selected, so that
+   lookup fell through to the theme's dark :active color and the icons turned
+   dark. Give that state an accent-derived, lighter color instead. --- */
+window.thunar .standard-view:active,
+window.thunar .standard-view.view:active,
+window.thunar iconview:active,
+window.thunar .view:active {
+    background-color: mix($C6, $FG, 0.30);
+    color: $BG;
+}
+/* <<< thunar-menu-and-rightclick <<< */
 EOF
 
 # The old user gtk.css would override the theme (user priority), so empty it

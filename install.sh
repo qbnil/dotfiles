@@ -470,12 +470,53 @@ build_slock() {
     fi
 }
 
+# Patched Thunar (cut/copy tint). Same package name as the repo one, so
+# pacman -U simply replaces the stock build. Built in a temp dir so the
+# repo stays clean.
+build_thunar_patched() {
+    local dir="$DOTFILES_DIR/src/thunar" log=/tmp/dotfiles-build-thunar.log
+    local want repo tmp
+
+    [ -f "$dir/PKGBUILD" ] || { print_warning "src/thunar missing; keeping stock Thunar"; return 0; }
+    if [ ! -f "$dir/thunar-cut-copy-colors.patch" ]; then
+        print_error "src/thunar/thunar-cut-copy-colors.patch is missing"
+        FAILED_BUILDS+=("thunar")
+        return 0
+    fi
+
+    # The patch targets one exact release. If the repo has moved on, building the
+    # old version would DOWNGRADE Thunar (and can break thunar-volman/plugins).
+    want="$(sed -n 's/^pkgver=//p' "$dir/PKGBUILD")"
+    repo="$(pacman -Si thunar 2>/dev/null | awk '/^Version/{print $3}')"
+    repo="${repo#*:}"; repo="${repo%-*}"
+    if [ "$repo" != "$want" ]; then
+        print_warning "Repo Thunar is $repo but the patch targets $want; keeping stock Thunar"
+        print_warning "  update src/thunar/PKGBUILD + patch for the new version, then re-run"
+        return 0
+    fi
+
+    tmp="$(mktemp -d)"
+    print_status "Building patched Thunar $want..."
+    if ( cd "$dir" \
+         && BUILDDIR="$tmp" SRCDEST="$tmp" PKGDEST="$tmp" \
+            makepkg -sif --noconfirm 2>&1 | tee "$log" ); then
+        print_success "patched Thunar installed"
+        rm -f "$log"
+    else
+        print_error "Thunar build failed; full log: $log"
+        tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
+        FAILED_BUILDS+=("thunar")
+    fi
+    rm -rf "$tmp"
+}
+
 build_user_make vxwm "$DOTFILES_DIR/src/vxwm"
 build_user_make dmenu "$DOTFILES_DIR/src/dmenu"
 build_user_make st "$DOTFILES_DIR/src/st-terminal"
 build_user_make nsxiv "$DOTFILES_DIR/src/nsxiv"
 build_user_make dmenu-win "$DOTFILES_DIR/src/dmenu-win"
 build_slock
+build_thunar_patched
 
 if [ -d "$DOTFILES_DIR/src/zlstatus" ]; then
     print_status "Building zlstatus..."

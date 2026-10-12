@@ -19,10 +19,23 @@
 --   <leader>gp  push
 --   <leader>gr  refresh git status in fff + gitsigns
 --
+-- Below the changed files the list grows a "Commits" section: every commit
+-- reachable from HEAD, newest first, with an up-arrow mark (↑) on the ones that
+-- are not pushed yet. <CR> on a commit row opens `git show` for it in a split;
+-- committed files drop out of the file section after a commit and on <leader>gr.
+--
 -- Review helpers that already exist: <leader>zd (zdiff uncommitted),
 -- <leader>zD (zdiff vs main) and the per-file gitsigns hunks.
 
 local M = {}
+
+-- Repo the "Agent changes" list was most recently built from. While a quickfix
+-- window is current (its buffer has no path of its own) this keeps commit,
+-- stage, show_commit and refresh pinned to the same repository.
+M.last_root = nil
+
+-- Forward declarations so functions defined earlier in the file can use them.
+local file_items, commit_items
 
 local function notify(msg, level)
 	vim.notify(msg, level or vim.log.levels.INFO, { title = "Agent Review" })
@@ -54,14 +67,37 @@ local function git(args, cwd)
 	return vim.system(cmd, { cwd = cwd, text = true }):wait()
 end
 
+--- Git root for the current context, in order of preference:
+--- 1. the repository the active "Agent changes" quickfix was built from;
+--- 2. the repository containing the current file (follows buffers across
+---    repos/repos nested inside dotfiles, and works when nvim started outside
+---    any repository);
+--- 3. the repository of the working directory.
 --- @return string|nil
 local function git_root()
-	local res = git({ "rev-parse", "--show-toplevel" })
-	if res.code ~= 0 then
-		return nil
+	local buf = vim.api.nvim_get_current_buf()
+	if vim.bo[buf].buftype == "quickfix" and M.last_root then
+		return M.last_root
 	end
-	local root = vim.trim(res.stdout or "")
-	return root ~= "" and root or nil
+
+	local dirs = {}
+	local path = vim.fn.expand("%:p")
+	if path ~= "" and path:find("/", 1, true) then
+		dirs[#dirs + 1] = vim.fn.fnamemodify(path, ":h")
+	end
+	dirs[#dirs + 1] = vim.fn.getcwd()
+
+	for _, dir in ipairs(dirs) do
+		local res = git({ "rev-parse", "--show-toplevel" }, dir)
+		if res.code == 0 then
+			local root = vim.trim(res.stdout or "")
+			if root ~= "" then
+				M.last_root = root
+				return root
+			end
+		end
+	end
+	return nil
 end
 
 local STATUS_WORD = {
@@ -159,6 +195,9 @@ local LABEL_HL = {
 local QF_NS = vim.api.nvim_create_namespace("agent_review_qf")
 local qf_augroup = vim.api.nvim_create_augroup("AgentReviewQf", { clear = true })
 
+--- Marks a commit that has not been pushed yet.
+local UNPUSHED_MARK = "↑"
+
 --- @param name string
 --- @param candidates string[]
 local function link_hl(name, candidates)
@@ -179,6 +218,7 @@ local function define_highlights()
 	link_hl("AgentReviewChanged", { "DiagnosticHint", "Comment" })
 	link_hl("AgentReviewAdd", { "DiagnosticOk", "DiffAdd", "String" })
 	link_hl("AgentReviewDel", { "DiagnosticError", "DiffDelete", "Error" })
+	link_hl("AgentReviewUnpushed", { "Special", "DiagnosticWarn" })
 end
 
 --- Paint the status word and the +/- counts in a quickfix row. The row text
@@ -198,9 +238,17 @@ local function colorize_qf(buf)
 		local qpos = line:find(quad, 1, true)
 		if qpos then
 			local text = line:sub(qpos + qlen)
+			local base = qpos + qlen - 1 -- 0-based col where the row text starts
+			-- Unpushed-commit marker.
+			if text:sub(1, #UNPUSHED_MARK) == UNPUSHED_MARK then
+				vim.api.nvim_buf_set_extmark(buf, QF_NS, i - 1, base, {
+					hl_group = "AgentReviewUnpushed",
+					end_col = base + #UNPUSHED_MARK,
+					priority = 120,
+				})
+			end
 			local label = text:match("^(%a+)")
 			if label and LABEL_HL[label] then
-				local base = qpos + qlen - 1 -- 0-based col where the row text starts
 				vim.api.nvim_buf_set_extmark(buf, QF_NS, i - 1, base, {
 					hl_group = LABEL_HL[label],
 					end_col = base + #label,
@@ -236,18 +284,29 @@ local function renumber_qf(buf)
 		return
 	end
 	local items = vim.fn.getqflist()
+	local function is_special(it)
+		local ud = it.user_data
+		return type(ud) == "table" and (ud.agent == "commit" or ud.agent == "header")
+	end
+	local n = 0
 	local needs = false
-	for i, it in ipairs(items) do
-		if it.lnum ~= i then
-			needs = true
-			break
+	for _, it in ipairs(items) do
+		if not is_special(it) then
+			n = n + 1
+			if it.lnum ~= n then
+				needs = true
+			end
 		end
 	end
 	if not needs then
 		return
 	end
-	for i, it in ipairs(items) do
-		it.lnum = i
+	n = 0
+	for _, it in ipairs(items) do
+		if not is_special(it) then
+			n = n + 1
+			it.lnum = n
+		end
 	end
 	vim.fn.setqflist({}, "r", { items = items, title = "Agent changes" })
 end
@@ -305,6 +364,13 @@ function M.enrich_quickfix()
 		return false
 	end
 
+	-- Already an agent list (rebuilt by us)? Leave it alone.
+	for _, it in ipairs(items) do
+		if type(it.user_data) == "table" and it.user_data.agent then
+			return false
+		end
+	end
+
 	local files = {}
 	for _, it in ipairs(items) do
 		if it.bufnr == 0 or it.lnum > 1 or (it.col or 1) > 1 then
@@ -339,8 +405,10 @@ function M.enrich_quickfix()
 			lnum = i, -- drawn as the file number in quicker's left column
 			col = 1,
 			text = string.format("%-10s %s", label, e and churn(e.added, e.deleted) or ""),
+			user_data = { agent = "file" },
 		}
 	end
+	vim.list_extend(new_items, commit_items())
 
 	vim.fn.setqflist({}, "r", { title = "Agent changes", items = new_items })
 	return true
@@ -409,8 +477,9 @@ function M.picker()
 	fff.find_files({
 		cwd = root,
 		-- FFF's file search understands git-status constraints. Excluding the
-		-- "clean" (unmodified) state leaves exactly the agent's changes.
-		query = "!git:clean",
+		-- "clean" (unmodified) state leaves exactly the agent's changes. The
+		-- trailing space lets you start typing a filter straight away.
+		query = "!git:clean ",
 		title = "Agent changes",
 	})
 
@@ -428,18 +497,54 @@ function M.picker()
 	end, 250)
 end
 
---- Push all changed files into the quickfix list and open it.
-function M.quickfix_all()
-	local entries, root = M.changed_files()
+--- Every commit reachable from HEAD (newest first), each flagged `unpushed`
+--- when it is not on the upstream branch. With no upstream every commit counts
+--- as unpushed (nothing has been pushed).
+--- @return { sha: string, short: string, subject: string, unpushed: boolean }[]
+function M.commit_list()
+	local root = git_root()
 	if not root then
-		notify("Not inside a git repository", vim.log.levels.WARN)
-		return
-	end
-	if not entries or #entries == 0 then
-		notify("No uncommitted changes", vim.log.levels.WARN)
-		return
+		return {}
 	end
 
+	local has_upstream = git({ "rev-parse", "--verify", "--quiet", "@{u}" }, root).code == 0
+	local unpushed = {}
+	if has_upstream then
+		local res = git({ "rev-list", "@{u}..HEAD" }, root)
+		if res.code == 0 then
+			for line in vim.gsplit(res.stdout or "", "\n", { plain = true }) do
+				if line ~= "" then
+					unpushed[line] = true
+				end
+			end
+		end
+	end
+
+	local res = git({ "log", "--format=%H%x1f%h%x1f%s" }, root)
+	if res.code ~= 0 then
+		return {}
+	end
+	local commits = {}
+	for line in vim.gsplit(res.stdout or "", "\n", { plain = true }) do
+		local parts = vim.split(line, "\31", { plain = true })
+		if parts[1] and parts[1] ~= "" then
+			commits[#commits + 1] = {
+				sha = parts[1],
+				short = parts[2] or "",
+				subject = parts[3] or "",
+				unpushed = (not has_upstream) or unpushed[parts[1]] == true,
+			}
+		end
+	end
+	return commits
+end
+
+--- Quickfix rows for the changed files. `lnum` doubles as the file number in
+--- quicker's left column, and the `agent = "file"` marker lets us tell these
+--- rows apart from the commits section.
+--- @param entries table[]
+--- @return table[]
+file_items = function(entries)
 	local items = {}
 	for i, e in ipairs(entries) do
 		items[#items + 1] = {
@@ -447,16 +552,102 @@ function M.quickfix_all()
 			lnum = i, -- drawn as the file number in quicker's left column
 			col = 1,
 			text = string.format("%-10s %s", e.label, churn(e.added, e.deleted)),
+			user_data = { agent = "file" },
 		}
+	end
+	return items
+end
+
+--- Quickfix rows for the commits section: a header followed by one row per
+--- commit (newest first), with a marker on the ones not pushed yet. Commit rows
+--- carry the full sha in user_data so <CR> can open `git show` for them.
+--- @return table[]
+commit_items = function()
+	local commits = M.commit_list()
+	if #commits == 0 then
+		return {}
+	end
+	local items = {
+		{
+			text = "Commits",
+			valid = 1,
+			bufnr = 0,
+			lnum = 0,
+			col = 0,
+			user_data = { header = "hard", agent = "header" },
+		},
+	}
+	for _, c in ipairs(commits) do
+		items[#items + 1] = {
+			text = (c.unpushed and (UNPUSHED_MARK .. " ") or "") .. c.subject,
+			valid = 1,
+			bufnr = 0,
+			lnum = 0,
+			col = 0,
+			module = c.short,
+			user_data = { agent = "commit", sha = c.sha, unpushed = c.unpushed or false },
+		}
+	end
+	return items
+end
+
+--- Build the full agent quickfix list: changed files, then the commits section.
+--- @return table[] items
+local function build_items()
+	local entries = M.changed_files() or {}
+	local items = file_items(entries)
+	vim.list_extend(items, commit_items())
+	return items
+end
+
+--- Push all changed files into the quickfix list and open it.
+function M.quickfix_all()
+	local root = git_root()
+	if not root then
+		notify("Not inside a git repository", vim.log.levels.WARN)
+		return
+	end
+
+	local items = build_items()
+	if #items == 0 then
+		notify("No uncommitted changes", vim.log.levels.WARN)
+		return
 	end
 
 	vim.fn.setqflist({}, "r", { title = "Agent changes", items = items })
 	vim.cmd("copen")
 	attach_qf(vim.api.nvim_get_current_buf())
-	notify(string.format("Added %d changed file%s to quickfix", #items, #items == 1 and "" or "s"))
+	local nfiles, ncommits = 0, 0
+	for _, it in ipairs(items) do
+		local agent = type(it.user_data) == "table" and it.user_data.agent
+		if agent == "file" then
+			nfiles = nfiles + 1
+		elseif agent == "commit" then
+			ncommits = ncommits + 1
+		end
+	end
+	local parts = {}
+	if nfiles > 0 then
+		parts[#parts + 1] = string.format("%d changed file%s", nfiles, nfiles == 1 and "" or "s")
+	end
+	if ncommits > 0 then
+		parts[#parts + 1] = string.format("%d commit%s", ncommits, ncommits == 1 and "" or "s")
+	end
+	notify("Added " .. table.concat(parts, " and ") .. " to quickfix")
 end
 
---- Refresh git status everywhere that displays it.
+--- Rebuild the agent quickfix list in place (changed files + commits). Used
+--- after a commit so the committed files drop out and the new commit appears.
+--- Only touches the list titled "Agent changes".
+function M.rebuild()
+	if vim.fn.getqflist({ title = 0 }).title ~= "Agent changes" then
+		return
+	end
+	vim.fn.setqflist({}, "r", { title = "Agent changes", items = build_items() })
+end
+
+--- Refresh git status everywhere that displays it, and rebuild the agent
+--- quickfix list so committed/removed files drop out and new commits appear.
 --- @param opts? { silent?: boolean }
 function M.refresh(opts)
 	opts = opts or {}
@@ -466,6 +657,7 @@ function M.refresh(opts)
 	pcall(function()
 		require("gitsigns").refresh()
 	end)
+	M.rebuild()
 	if not opts.silent then
 		notify("Refreshed git status")
 	end
@@ -631,8 +823,9 @@ function M.commit(opts)
 			return
 		end
 
-		local first = (res.stdout or ""):match("^(.-)\n") or msg
-		notify("Committed: " .. first)
+		local subject = vim.trim((git({ "log", "-1", "--format=%s" }, root).stdout or ""))
+		notify("Committed: " .. (subject ~= "" and subject or msg))
+		-- Rebuild: committed files drop out and the new commit tops the section.
 		M.refresh({ silent = true })
 
 		if opts.push then
@@ -660,6 +853,57 @@ function M.push()
 			end
 		end)
 	end)
+end
+
+--- Window currently showing a commit view buffer, if any.
+--- @return integer|nil
+local function commit_view_win()
+	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+		local name = vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win))
+		if name:find("^agentcommit://", 1) then
+			return win
+		end
+	end
+	return nil
+end
+
+--- Show a commit's changes (`git show`) in a split below the current window.
+--- Reuses an existing commit view window when one is open. Press q to close it.
+--- @param sha string
+function M.show_commit(sha)
+	local root = git_root()
+	if not root then
+		notify("Not inside a git repository", vim.log.levels.WARN)
+		return
+	end
+
+	local res = git({ "show", "--stat", "--patch", "--no-color", sha }, root)
+	if res.code ~= 0 then
+		notify("git show failed: " .. vim.trim(res.stderr or ""), vim.log.levels.ERROR)
+		return
+	end
+
+	local lines = vim.split(res.stdout or "", "\n", { plain = true })
+
+	local win = commit_view_win()
+	if win then
+		vim.api.nvim_set_current_win(win)
+	else
+		vim.cmd("botright split")
+	end
+
+	local buf = vim.api.nvim_get_current_buf()
+	vim.bo[buf].modifiable = true
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	vim.bo[buf].buftype = "nofile"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].modifiable = false
+	vim.bo[buf].filetype = "diff"
+	local name = "agentcommit://" .. sha
+	if vim.api.nvim_buf_get_name(buf) ~= name then
+		pcall(vim.api.nvim_buf_set_name, buf, name)
+	end
+	vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = true, silent = true, desc = "Close commit view" })
 end
 
 function M.setup()
