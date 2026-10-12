@@ -60,6 +60,23 @@ GTK_CSS="$THEME_DIR/gtk.css"
 cat > "$GTK_CSS" << EOF
 /* Pywal GTK3 theme - auto-generated from wallpaper */
 
+/* Standard GTK named colors. Many widgets - notably Thunar's file view - look
+   these up by name at runtime (gtk_style_context_lookup_color) instead of
+   honouring a CSS ':selected' background rule. A GTK3 theme MUST define them;
+   without theme_selected_bg_color Thunar paints the selected item background
+   with an undefined colour, so selected filenames vanish and no highlight is
+   shown. */
+@define-color theme_bg_color $BG;
+@define-color theme_fg_color $FG;
+@define-color theme_base_color $BG;
+@define-color theme_text_color $FG;
+@define-color theme_selected_bg_color $C6;
+@define-color theme_selected_fg_color $BG;
+@define-color theme_unfocused_bg_color $BG;
+@define-color theme_unfocused_fg_color $FG;
+@define-color theme_unfocused_selected_bg_color $C6;
+@define-color theme_unfocused_selected_fg_color $BG;
+
 /* Window decorations: no GTK frame at all, so apps like Waterfox only show
    the window manager's own border (same as Thunar, follows focus + palette) */
 decoration, decoration:backdrop {

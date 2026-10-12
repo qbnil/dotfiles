@@ -9,8 +9,8 @@
 
 pkgname=thunar
 pkgver=4.20.10
-pkgrel=2
-pkgdesc="Modern, fast and easy-to-use file manager for Xfce (patched: cut/copy icon tint from pywal theme)"
+pkgrel=3
+pkgdesc="Modern, fast and easy-to-use file manager for Xfce (patched: cut/copy icon tint from pywal theme, square selection highlight)"
 arch=('x86_64')
 url="https://docs.xfce.org/xfce/thunar/start"
 license=('GPL-2.0-or-later' 'LGPL-2.1-only')
@@ -19,13 +19,16 @@ depends=('desktop-file-utils' 'libexif' 'hicolor-icon-theme' 'libnotify'
          'pcre2' 'libgudev' 'exo' 'libxfce4util' 'libxfce4ui')
 makedepends=('base-devel')
 source=("https://archive.xfce.org/src/xfce/$pkgname/${pkgver%.*}/$pkgname-$pkgver.tar.bz2"
-        "thunar-cut-copy-colors.patch")
+        "thunar-cut-copy-colors.patch"
+        "thunar-square-highlight.patch")
 sha256sums=('a5a32b51028dc821155e44cdec025fe70398bae193c619ae6ba8b1babf6f49f1'
+            'SKIP'
             'SKIP')
 
 prepare() {
   cd "$pkgname-$pkgver"
   patch -p1 < "$srcdir/thunar-cut-copy-colors.patch"
+  patch -p1 < "$srcdir/thunar-square-highlight.patch"
 }
 
 build() {
@@ -49,3 +52,4 @@ package() {
 }
 
 # vim:set ts=2 sw=2 et:
+
