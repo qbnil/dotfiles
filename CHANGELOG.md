@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Xresources is now a single generated file: `~/.config/x11/Xresources` is rebuilt by the new `~/.local/bin/xresources-gen` (static Xft/cursor block + the current pywal palette). This removes the duplicate `~/.Xresources` - pywal's palette previously reached the session through two symlinks into `~/.cache/wal/colors.Xresources` - and makes the static Xft/cursor settings actually apply (the old tracked `config/.config/x11/Xresources` was shadowed by the palette symlink). `Xft.dpi` is intentionally **not** set, so fonts keep using the real screen DPI instead of a hard-coded 96.
+  - `xrdb-reload` now runs `xresources-gen`, then merges `~/.config/x11/Xresources`, `~/.cache/wal/xrdb_extra` and `~/.config/vxpanel/Xresources` (vxpanel last). `xinitrc`, `rvx` and `pywal16` are unchanged callers.
+  - `config/.config/x11/Xresources` is deleted and git-ignored: the live file must never be tracked/stowed, or pywal would write straight into the repository through the Stow symlink.
+  - `vxpanel` always writes its cursor/DPI to `~/.config/vxpanel/Xresources` (no longer probes `~/.Xresources`).
+
+- Wallpaper now appears immediately after `wallpapermenu` (or vxpanel). pywal sets the wallpaper with `feh`, but `feh` is launched in the background and needs ~180 ms to decode a 4K image, so the hook's repaint fired against the *old* pixmap and `xcompmgr` kept showing the previous wallpaper until some unrelated event (keypress, tag switch, launching an app). Callers now pass `wal -n` (skip pywal's own setter) and `pywal16` sets the wallpaper itself with the tiny `xwallpaper` binary (synchronous, also used at login) *before* forcing a single `xrefresh`. `vxpanel`'s `after()` fallback also calls `xrdb-reload` now instead of rebuilding the merge itself.
+
 - vxwm: features borrowed from [chadwm](https://github.com/siduck/chadwm), as a new `modules/extras` module with its own switches in `modules.h`:
   - `EXTRA_LAYOUTS`: bottom stack `TTT`, centered master `|M|` and deck `[D]`, appended after the existing four layouts so `layouts[0..3]` keep their meaning. All of them honour `gappx`, `mfact` and `nmaster`.
   - `LAYOUT_CYCLE`: `Super+Ctrl+,` / `Super+Ctrl+.` steps through the tiling layouts (floating is skipped; it keeps its own bind).

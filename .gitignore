@@ -9,6 +9,10 @@
 *~
 .DS_Store
 
+# Generated at runtime by xresources-gen (static block + the pywal palette).
+# Never track/stow this: the repo copy would be overwritten by pywal.
+config/.config/x11/Xresources
+
 # Build artifacts from vendored sources
 **/zig-out/
 **/zig-cache/

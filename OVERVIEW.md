@@ -9,7 +9,7 @@ An XDG-first Arch Linux desktop configuration managed with GNU Stow.
 - `src/` contains vendored/custom program sources and is **never** stowed into `$HOME`.
 - Standard XDG user directories are explicitly lowercase (`~/downloads`, `~/pictures`, etc.), defined in `user-dirs.dirs`.
 - Only the unavoidable compatibility entrypoints remain directly in `$HOME`: `.bashrc`, `.bash_profile`, `.zshenv`, `.xinitrc`.
-- `~/.Xresources` is gone; Xresources is kept under `~/.config/x11/`.
+- `~/.Xresources` is gone; the single Xresources is generated at `~/.config/x11/Xresources` by `xresources-gen` (static block + pywal palette).
 
 ## Main components
 

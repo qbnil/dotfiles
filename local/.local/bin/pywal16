@@ -1,30 +1,53 @@
 #!/usr/bin/env bash
-# wal hook (wal -o): re-merge the Xresources sources so the running session picks
-# up the new palette immediately. xrdb-reload keeps vxpanel's cursor/DPI last, so
-# a wallpaper change never resets the cursor theme chosen in vxpanel.
+# wal hook (wal -o): refresh the running session after a wallpaper change.
+#
+# Order matters. pywal sets the wallpaper with feh, but feh is launched in the
+# background (pywal disowns it) and needs ~180ms to decode a 4K image. If we
+# repaint before that, xcompmgr keeps showing the OLD wallpaper until some
+# unrelated event (keypress, tag switch, launching an app) forces a redraw.
+# So we set the wallpaper ourselves with the tiny xwallpaper binary (it blocks
+# until the pixmap is on the root window) and only then force one redraw.
+# Callers pass `wal -n`, so pywal does not also run feh.
+set -u
+
+X="${XDG_CONFIG_HOME:-$HOME/.config}"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}"
+WAL_IMG="$CACHE/wal/wal"
+
+# 1. Colours: regenerate + merge every Xresources source (vxpanel cursor/DPI last).
 "$HOME/.local/bin/xrdb-reload"
-# Trigger xrdb refresh for terminals/applications that listen to it
-xdotool key super+F5 &
-# Force wallpaper redraw with xcompmgr-friendly approach
-# Instead of xrefresh (which blocks), use a minimal async redraw
+
+# 2. Wallpaper: set it synchronously so the new pixmap is on the root window
+#    before we repaint. Prefer xwallpaper (also used at login); fall back to feh.
+if [ -s "$WAL_IMG" ]; then
+    img=$(cat "$WAL_IMG")
+    if [ -n "$img" ] && [ -e "$img" ]; then
+        if command -v xwallpaper >/dev/null 2>&1; then
+            xwallpaper --zoom "$img"
+        elif command -v feh >/dev/null 2>&1; then
+            feh --bg-fill "$img"
+        fi
+    fi
+fi
+
+# 3. Repaint: reload vxwm's colours and force xcompmgr to redraw the root now.
+if [ -n "${DISPLAY:-}" ]; then
+    xdotool key super+F5 2>/dev/null || true
+    xrefresh
+fi
+
+# 4. Heavy extras in the background so the picker returns immediately.
 (
-  sleep 0.05  # Let xrdb settle
-  xrefresh &
-  wait
+    # GTK theme regeneration for Thunar
+    if [ -x "$HOME/.local/bin/regenerate-gtk-theme.sh" ]; then
+        "$HOME/.local/bin/regenerate-gtk-theme.sh"
+    fi
+    # Update dunst colors from pywal
+    if [ -f "$CACHE/wal/dunstrc" ]; then
+        mkdir -p "$HOME/.config/dunst/dunstrc.d"
+        cp "$CACHE/wal/dunstrc" "$HOME/.config/dunst/dunstrc.d/90-pywal.conf"
+        pkill -x dunst 2>/dev/null; (dunst >/dev/null 2>&1 &)
+    fi
 ) &
-# Background heavy operations so they don't block the shell
-(
-  # GTK theme regeneration for Thunar
-  if [[ -x "$HOME/.local/bin/regenerate-gtk-theme.sh" ]]; then
-    "$HOME/.local/bin/regenerate-gtk-theme.sh"
-  fi
-  # Update dunst colors from pywal
-  if [[ -f "$HOME/.cache/wal/dunstrc" ]]; then
-    mkdir -p "$HOME/.config/dunst/dunstrc.d"
-    cp "$HOME/.cache/wal/dunstrc" "$HOME/.config/dunst/dunstrc.d/90-pywal.conf"
-    pkill -x dunst 2>/dev/null; (dunst >/dev/null 2>&1 &)
-  fi
-  # ln -sf ~/.cache/wal/colors-obsidian.css ~/dotfiles/helpbook/.obsidian/snippets/colors-obsidian.css
-) &
-# Return immediately without waiting for background jobs
+
 exit 0

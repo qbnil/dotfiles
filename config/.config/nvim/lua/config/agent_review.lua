@@ -1,8 +1,10 @@
--- Review AI-agent changes with the fff picker, push them into the quickfix
+-- Review AI-agent changes in a searchable picker, push them into the quickfix
 -- list, and commit/push when you're happy.
 --
---   <leader>gs  browse uncommitted changes in the fff picker
---               (<Tab> to select, <C-q> to send ALL listed files to quickfix)
+--   <leader>gs  searchable picker of ALL changes, including deleted files
+--               (type to fuzzy filter, status words match too: "deleted foo")
+--               <Tab> select, <CR> open (deleted -> HEAD content in a split),
+--               <C-q> send selected (or all listed) to quickfix, <Esc> close
 --   <leader>gq  open every changed file in the editable quickfix list
 --               (dd removes an entry, :w applies it, q closes)
 --   <leader>ga  stage the file under the cursor in the quickfix (or the
@@ -193,6 +195,7 @@ local LABEL_HL = {
 }
 
 local QF_NS = vim.api.nvim_create_namespace("agent_review_qf")
+local PICKER_NS = vim.api.nvim_create_namespace("agent_review_picker")
 local qf_augroup = vim.api.nvim_create_augroup("AgentReviewQf", { clear = true })
 
 --- Marks a commit that has not been pushed yet.
@@ -457,44 +460,6 @@ function M.changed_files()
 	end
 
 	return entries, root
-end
-
---- Open the fff picker filtered to uncommitted changes. Press <C-q> in the
---- picker to drop every listed file into the quickfix list.
-function M.picker()
-	local root = git_root()
-	if not root then
-		notify("Not inside a git repository", vim.log.levels.WARN)
-		return
-	end
-
-	local ok, fff = pcall(require, "fff")
-	if not ok then
-		notify("fff is not available: " .. tostring(fff), vim.log.levels.ERROR)
-		return
-	end
-
-	fff.find_files({
-		cwd = root,
-		-- FFF's file search understands git-status constraints. Excluding the
-		-- "clean" (unmodified) state leaves exactly the agent's changes. The
-		-- trailing space lets you start typing a filter straight away.
-		query = "!git:clean ",
-		title = "Agent changes",
-	})
-
-	-- Git statuses are applied asynchronously right after indexing. Re-run the
-	-- search shortly after so the list reflects anything that landed late.
-	vim.defer_fn(function()
-		local picker_ok, picker = pcall(require, "fff.picker_ui.picker_ui")
-		if not picker_ok or not picker.state or not picker.state.active then
-			return
-		end
-		pcall(function()
-			require("fff.file_picker").refresh_git_status()
-		end)
-		pcall(picker.update_results)
-	end, 250)
 end
 
 --- Every commit reachable from HEAD (newest first), each flagged `unpushed`
@@ -906,6 +871,228 @@ function M.show_commit(sha)
 	vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = true, silent = true, desc = "Close commit view" })
 end
 
+--- Show a deleted file's last committed content (HEAD) in a read-only scratch
+--- split below the current window. Press q to close it.
+--- @param root string
+--- @param rel string
+local function show_deleted(root, rel)
+	local res = git({ "show", "HEAD:" .. rel }, root)
+	if res.code ~= 0 then
+		notify("git show failed: " .. vim.trim(res.stderr or ""), vim.log.levels.ERROR)
+		return
+	end
+	vim.cmd("botright split")
+	local buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_win_set_buf(0, buf)
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(res.stdout or "", "\n", { plain = true }))
+	vim.bo[buf].buftype = "nofile"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].modifiable = false
+	local ft = vim.filetype.match({ filename = rel })
+	if ft then
+		vim.bo[buf].filetype = ft
+	end
+	pcall(vim.api.nvim_buf_set_name, buf, "agentdeleted://" .. rel)
+	vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = buf, silent = true, desc = "Close" })
+end
+
+--- Searchable floating list of ALL changes (modified, new, deleted, ...).
+---   type to filter (fuzzy, multiple words allowed, status words match too:
+---   "deleted foo")   <C-n>/<C-p>/<Down>/<Up> move   <Tab> select
+---   <CR> open (deleted files show their HEAD content)
+---   <C-q> send selected (or all listed) to the quickfix list   <Esc> close
+function M.changes_picker()
+	local root = git_root()
+	if not root then
+		notify("Not inside a git repository", vim.log.levels.WARN)
+		return
+	end
+	local entries = M.changed_files() or {}
+	if #entries == 0 then
+		notify("No uncommitted changes", vim.log.levels.WARN)
+		return
+	end
+	for _, e in ipairs(entries) do
+		e.search = e.label .. " " .. e.path
+	end
+
+	local ui_w, ui_h = vim.o.columns, vim.o.lines
+	local w = math.min(math.max(60, math.floor(ui_w * 0.6)), ui_w - 4)
+	local h = math.min(math.max(#entries, 5), math.max(5, math.floor(ui_h * 0.6)))
+	local row = math.max(0, math.floor((ui_h - (h + 4)) / 2))
+	local col = math.max(0, math.floor((ui_w - w) / 2))
+
+	local list_buf = vim.api.nvim_create_buf(false, true)
+	local prompt_buf = vim.api.nvim_create_buf(false, true)
+	for _, b in ipairs({ list_buf, prompt_buf }) do
+		vim.bo[b].buftype = "nofile"
+		vim.bo[b].bufhidden = "wipe"
+	end
+
+	local list_win = vim.api.nvim_open_win(list_buf, false, {
+		relative = "editor",
+		row = row,
+		col = col,
+		width = w,
+		height = h,
+		style = "minimal",
+		border = "rounded",
+		focusable = false,
+		title = " Agent changes ",
+		title_pos = "left",
+	})
+	local prompt_win = vim.api.nvim_open_win(prompt_buf, true, {
+		relative = "editor",
+		row = row + h + 2,
+		col = col,
+		width = w,
+		height = 1,
+		style = "minimal",
+		border = "rounded",
+	})
+	vim.wo[list_win].cursorline = true
+	vim.wo[list_win].wrap = false
+
+	local filtered, idx, selected, closed = entries, 1, {}, false
+
+	local function render()
+		local q = vim.trim(vim.api.nvim_buf_get_lines(prompt_buf, 0, 1, false)[1] or "")
+		filtered = (q == "") and entries or vim.fn.matchfuzzy(entries, q, { key = "search" })
+		idx = math.min(math.max(idx, 1), math.max(#filtered, 1))
+
+		local lines = {}
+		for i, e in ipairs(filtered) do
+			local head = string.format("%s %-10s %s  ", selected[e.path] and "*" or " ", e.label, e.path)
+			lines[i] = head .. churn(e.added, e.deleted)
+		end
+		if #lines == 0 then
+			lines = { "  no matches" }
+		end
+
+		vim.bo[list_buf].modifiable = true
+		vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, lines)
+		vim.bo[list_buf].modifiable = false
+
+		vim.api.nvim_buf_clear_namespace(list_buf, PICKER_NS, 0, -1)
+		for i, e in ipairs(filtered) do
+			local line = lines[i]
+			vim.api.nvim_buf_set_extmark(list_buf, PICKER_NS, i - 1, 2, {
+				hl_group = LABEL_HL[e.label] or "AgentReviewChanged",
+				end_col = 2 + #e.label,
+			})
+			local init = 2 + 10 + 1 + #e.path + 2
+			while true do
+				local s, f = line:find("[+-]%d+", init)
+				if not s then
+					break
+				end
+				vim.api.nvim_buf_set_extmark(list_buf, PICKER_NS, i - 1, s - 1, {
+					hl_group = line:sub(s, s) == "+" and "AgentReviewAdd" or "AgentReviewDel",
+					end_col = f,
+				})
+				init = f + 1
+			end
+		end
+		if #filtered > 0 then
+			vim.api.nvim_win_set_cursor(list_win, { idx, 0 })
+		end
+	end
+
+	local function close()
+		if closed then
+			return
+		end
+		closed = true
+		vim.cmd("stopinsert")
+		for _, win in ipairs({ prompt_win, list_win }) do
+			if vim.api.nvim_win_is_valid(win) then
+				pcall(vim.api.nvim_win_close, win, true)
+			end
+		end
+	end
+
+	local function move(d)
+		if #filtered == 0 then
+			return
+		end
+		idx = math.min(math.max(idx + d, 1), #filtered)
+		vim.api.nvim_win_set_cursor(list_win, { idx, 0 })
+	end
+
+	local function toggle()
+		local e = filtered[idx]
+		if not e then
+			return
+		end
+		selected[e.path] = (not selected[e.path]) or nil
+		local keep = idx
+		render()
+		idx = keep
+		move(1)
+		render()
+	end
+
+	local function open_current()
+		local e = filtered[idx]
+		close()
+		if not e then
+			return
+		end
+		vim.schedule(function()
+			if e.label == "deleted" then
+				show_deleted(root, e.path)
+			else
+				vim.cmd("edit " .. vim.fn.fnameescape(e.abs))
+			end
+		end)
+	end
+
+	local function to_quickfix()
+		local picked = {}
+		for _, e in ipairs(filtered) do
+			if selected[e.path] then
+				picked[#picked + 1] = e
+			end
+		end
+		if #picked == 0 then
+			picked = filtered
+		end
+		if #picked == 0 then
+			return
+		end
+		close()
+		vim.schedule(function()
+			local items = file_items(picked)
+			vim.list_extend(items, commit_items())
+			vim.fn.setqflist({}, "r", { title = "Agent changes", items = items })
+			vim.cmd("copen")
+			attach_qf(vim.api.nvim_get_current_buf())
+		end)
+	end
+
+	local function m(keys, fn)
+		for _, k in ipairs(keys) do
+			vim.keymap.set({ "i", "n" }, k, fn, { buffer = prompt_buf, nowait = true, silent = true })
+		end
+	end
+	m({ "<Esc>", "<C-c>" }, close)
+	m({ "<C-n>", "<Down>", "<C-j>" }, function()
+		move(1)
+	end)
+	m({ "<C-p>", "<Up>", "<C-k>" }, function()
+		move(-1)
+	end)
+	m({ "<Tab>" }, toggle)
+	m({ "<CR>" }, open_current)
+	m({ "<C-q>" }, to_quickfix)
+
+	vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, { buffer = prompt_buf, callback = render })
+	vim.api.nvim_create_autocmd("WinLeave", { buffer = prompt_buf, once = true, callback = close })
+
+	render()
+	vim.cmd("startinsert")
+end
+
 function M.setup()
 	define_highlights()
 
@@ -930,7 +1117,7 @@ function M.setup()
 		vim.keymap.set("n", lhs, rhs, { silent = true, desc = desc })
 	end
 
-	map("<leader>gs", M.picker, "Agent changes (fff)")
+	map("<leader>gs", M.changes_picker, "Agent changes (searchable, incl. deleted)")
 	map("<leader>gq", M.quickfix_all, "Agent changes → quickfix")
 	map("<leader>ga", M.stage_file, "Stage file under cursor")
 	vim.keymap.set("x", "<leader>ga", M.stage_selection, { silent = true, desc = "Stage selected files" })
@@ -952,7 +1139,11 @@ function M.setup()
 	map("<leader>gp", M.push, "Git push")
 	map("<leader>gr", M.refresh, "Refresh git status")
 
-	vim.api.nvim_create_user_command("AgentChanges", M.picker, { desc = "Browse agent changes in fff" })
+	vim.api.nvim_create_user_command(
+		"AgentChanges",
+		M.changes_picker,
+		{ desc = "Search all agent changes (incl. deleted)" }
+	)
 	vim.api.nvim_create_user_command("AgentQuickfix", M.quickfix_all, { desc = "Send agent changes to quickfix" })
 	vim.api.nvim_create_user_command("AgentStage", M.stage_all, { desc = "Stage all changes" })
 	vim.api.nvim_create_user_command("AgentCommit", function()

@@ -1,15 +1,15 @@
 #!/bin/sh
 # Merge every Xresources source in the canonical order:
-#   1. static Xft settings (~/.config/x11/Xresources)
-#   2. the pywal palette (~/.cache/wal/colors.Xresources)
-#   3. pywal's dwm.color* extras (~/.cache/wal/xrdb_extra)
-#   4. vxpanel's cursor theme / DPI (~/.config/vxpanel/Xresources)
-# vxpanel is merged last so the cursor chosen in vxpanel always wins. xinitrc
-# (login), rvx (WM restart) and pywal16 (wallpaper change) all call this, so the
-# order lives in exactly one place.
+#   1. ~/.config/x11/Xresources  - the single file (static Xft/cursor + pywal
+#      palette). Regenerated here by xresources-gen so it is always current.
+#   2. pywal's dwm.color* extras (~/.cache/wal/xrdb_extra)
+#   3. vxpanel's cursor theme / DPI (~/.config/vxpanel/Xresources) - merged last, wins
+# xinitrc (login), rvx (WM restart) and pywal16 (wallpaper change) all call this,
+# so the order lives in exactly one place. There is deliberately no ~/.Xresources.
 X="${XDG_CONFIG_HOME:-$HOME/.config}"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}"
+"$HOME/.local/bin/xresources-gen"
 "$HOME/.local/bin/wal-xrdb-extra" >/dev/null 2>&1 || true
 cat "$X/x11/Xresources" \
-    "$HOME/.cache/wal/colors.Xresources" \
-    "$HOME/.cache/wal/xrdb_extra" \
+    "$CACHE/wal/xrdb_extra" \
     "$X/vxpanel/Xresources" 2>/dev/null | xrdb -merge

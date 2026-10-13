@@ -1,0 +1,173 @@
+diff --git a/thunar/thunar-shortcuts-view.c b/thunar/thunar-shortcuts-view.c
+index d4b9100..2431ffc 100644
+--- a/thunar/thunar-shortcuts-view.c
++++ b/thunar/thunar-shortcuts-view.c
+@@ -126,6 +126,12 @@ static void
+ thunar_shortcuts_view_drag_leave (GtkWidget      *widget,
+                                   GdkDragContext *context,
+                                   guint           timestamp);
++static void
++thunar_shortcuts_view_drop_cell_data_func (GtkTreeViewColumn *column,
++                                           GtkCellRenderer   *cell,
++                                           GtkTreeModel      *model,
++                                           GtkTreeIter       *iter,
++                                           gpointer           user_data);
+ static gboolean
+ thunar_shortcuts_view_popup_menu (GtkWidget *widget);
+ static void
+@@ -325,6 +331,8 @@ thunar_shortcuts_view_init (ThunarShortcutsView *view)
+   GtkTreeViewColumn *column;
+   GtkCellRenderer   *renderer;
+   GtkTreeSelection  *selection;
++  GList             *renderers;
++  GList             *lp;
+ 
+   /* configure the tree view */
+   gtk_tree_view_set_enable_search (GTK_TREE_VIEW (view), FALSE);
+@@ -345,7 +353,7 @@ thunar_shortcuts_view_init (ThunarShortcutsView *view)
+                                         "reorderable", FALSE,
+                                         "resizable", FALSE,
+                                         "expand", TRUE,
+-                                        "spacing", 2,
++                                        "spacing", 0,
+                                         NULL);
+   gtk_tree_view_append_column (GTK_TREE_VIEW (view), column);
+ 
+@@ -368,7 +376,7 @@ thunar_shortcuts_view_init (ThunarShortcutsView *view)
+ 
+   /* separator for indent */
+   renderer = gtk_cell_renderer_text_new ();
+-  g_object_set (G_OBJECT (renderer), "xpad", 6, NULL);
++  g_object_set (G_OBJECT (renderer), "xpad", 7, NULL);
+   gtk_tree_view_column_pack_start (column, renderer, FALSE);
+   gtk_tree_view_column_set_attributes (column, renderer,
+                                        "visible", THUNAR_SHORTCUTS_MODEL_COLUMN_IS_ITEM,
+@@ -398,6 +406,7 @@ thunar_shortcuts_view_init (ThunarShortcutsView *view)
+   /* allocate the text renderer (ellipsizing as required, but "File System" must fit) */
+   renderer = g_object_new (GTK_TYPE_CELL_RENDERER_TEXT,
+                            "ellipsize", PANGO_ELLIPSIZE_END,
++                           "xpad", 4,
+                            NULL);
+   g_signal_connect (G_OBJECT (renderer), "edited", G_CALLBACK (thunar_shortcuts_view_renamed), view);
+   gtk_tree_view_column_pack_start (column, renderer, TRUE);
+@@ -432,6 +441,13 @@ thunar_shortcuts_view_init (ThunarShortcutsView *view)
+                                        "visible", THUNAR_SHORTCUTS_MODEL_COLUMN_CAN_EJECT,
+                                        NULL);
+ 
++  /* paint the drop target row with a solid colour (see the data func) */
++  renderers = gtk_cell_layout_get_cells (GTK_CELL_LAYOUT (column));
++  for (lp = renderers; lp != NULL; lp = lp->next)
++    gtk_tree_view_column_set_cell_data_func (column, GTK_CELL_RENDERER (lp->data),
++                                             thunar_shortcuts_view_drop_cell_data_func, view, NULL);
++  g_list_free (renderers);
++
+   /* enable drag support for the shortcuts view (actually used to support reordering) */
+   gtk_tree_view_enable_model_drag_source (GTK_TREE_VIEW (view), GDK_BUTTON1_MASK, drag_targets,
+                                           G_N_ELEMENTS (drag_targets), GDK_ACTION_MOVE);
+@@ -944,6 +960,106 @@ thunar_shortcuts_view_drag_drop (GtkWidget      *widget,
+ 
+ 
+ 
++/* colours used for the row below the pointer while files are dragged over
++ * the sidebar. Both can be set from the pywal-generated gtk.css:
++ *   @define-color thunar_drop_color    #rrggbb;
++ *   @define-color thunar_drop_fg_color #rrggbb;   (optional)
++ * Without them the colour is the current selection colour with its hue
++ * rotated, and the text colour is picked for contrast. */
++static void
++thunar_shortcuts_view_get_drop_colors (GtkWidget *widget,
++                                       GdkRGBA   *bg,
++                                       GdkRGBA   *fg)
++{
++  GtkStyleContext *context = gtk_widget_get_style_context (widget);
++  gdouble          h, s, v, lum;
++
++  if (!gtk_style_context_lookup_color (context, "thunar_drop_color", bg))
++    {
++      G_GNUC_BEGIN_IGNORE_DEPRECATIONS
++      gtk_style_context_get_background_color (context, GTK_STATE_FLAG_SELECTED, bg);
++      G_GNUC_END_IGNORE_DEPRECATIONS
++
++      if (bg->alpha < 0.01)
++        {
++          bg->red = 0.30;
++          bg->green = 0.55;
++          bg->blue = 0.80;
++        }
++
++      /* make it "a bit different" from the selection colour */
++      gtk_rgb_to_hsv (bg->red, bg->green, bg->blue, &h, &s, &v);
++      h += 0.10;
++      if (h >= 1.0)
++        h -= 1.0;
++      if (s < 0.25)
++        s = 0.25;
++      gtk_hsv_to_rgb (h, s, v, &bg->red, &bg->green, &bg->blue);
++    }
++  bg->alpha = 1.0;
++
++  if (!gtk_style_context_lookup_color (context, "thunar_drop_fg_color", fg))
++    {
++      lum = 0.2126 * bg->red + 0.7152 * bg->green + 0.0722 * bg->blue;
++      fg->red = fg->green = fg->blue = (lum > 0.5) ? 0.07 : 0.96;
++    }
++  fg->alpha = 1.0;
++}
++
++
++
++static void
++thunar_shortcuts_view_drop_cell_data_func (GtkTreeViewColumn *column,
++                                           GtkCellRenderer   *cell,
++                                           GtkTreeModel      *model,
++                                           GtkTreeIter       *iter,
++                                           gpointer           user_data)
++{
++  GtkTreeViewDropPosition position;
++  GtkTreePath            *drop_path = NULL;
++  GtkTreePath            *path;
++  gboolean                highlight = FALSE;
++  gboolean                is_set;
++  GdkRGBA                 bg, fg;
++  GtkWidget              *view = GTK_WIDGET (user_data);
++
++  /* only "drop into" gets a filled row, reorder lines are left alone */
++  gtk_tree_view_get_drag_dest_row (GTK_TREE_VIEW (view), &drop_path, &position);
++  if (drop_path != NULL)
++    {
++      if (position == GTK_TREE_VIEW_DROP_INTO_OR_BEFORE || position == GTK_TREE_VIEW_DROP_INTO_OR_AFTER)
++        {
++          path = gtk_tree_model_get_path (model, iter);
++          highlight = (gtk_tree_path_compare (path, drop_path) == 0);
++          gtk_tree_path_free (path);
++        }
++      gtk_tree_path_free (drop_path);
++    }
++
++  if (highlight)
++    {
++      thunar_shortcuts_view_get_drop_colors (view, &bg, &fg);
++      g_object_set (cell, "cell-background-rgba", &bg, NULL);
++      if (GTK_IS_CELL_RENDERER_TEXT (cell))
++        g_object_set (cell, "foreground-rgba", &fg, NULL);
++    }
++  else
++    {
++      /* only touch the renderer if it carries our colours (avoids notify spam) */
++      g_object_get (cell, "cell-background-set", &is_set, NULL);
++      if (is_set)
++        g_object_set (cell, "cell-background-rgba", NULL, NULL);
++      if (GTK_IS_CELL_RENDERER_TEXT (cell))
++        {
++          g_object_get (cell, "foreground-set", &is_set, NULL);
++          if (is_set)
++            g_object_set (cell, "foreground-rgba", NULL, NULL);
++        }
++    }
++}
++
++
++
+ static gboolean
+ thunar_shortcuts_view_drag_motion (GtkWidget      *widget,
+                                    GdkDragContext *context,

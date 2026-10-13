@@ -14,9 +14,10 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # hsetroot -cover "$XDG_PICTURES_DIR/wallpapers/example.jpg"
 
 # Kept synchronous: vxwm reads dwm.color* from Xresources at startup, so this
-# has to land before `exec vxwm`. xrdb-reload regenerates ~/.cache/wal/xrdb_extra
-# and merges every source (static Xft, pywal palette, vxpanel cursor last) - the
-# shared helper xinitrc, rvx and pywal16 all use, so the order never drifts.
+# has to land before `exec vxwm`. xrdb-reload regenerates the single
+# ~/.config/x11/Xresources (static Xft/cursor + current pywal palette) plus
+# ~/.cache/wal/xrdb_extra, then merges vxpanel's cursor/DPI last - the shared
+# helper xinitrc, rvx and pywal16 all use, so the order never drifts.
 "$HOME/.local/bin/xrdb-reload"
 
 zlstatus &
