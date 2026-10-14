@@ -64,7 +64,10 @@ fn writeStatus() void {
     Out.write();
 }
 
-const FMT_BATVOL = "B:%d V:%d%s";
+// Charger marker sits right after the capacity: `B:99+` actively charging,
+// `B:99F` attached but holding (charge limit / full), `B:99` discharging. It
+// mirrors the existing ASCII style (`+ts`, `M` for muted) and needs no font.
+const FMT_BATVOL = "B:%d%s V:%d%s";
 const FMT_DATE = "%a %d %b %H:%M ";
 // BUF_LEN grew to fit "<net><now playing><batt/vol><date>"
 const BUF_LEN = 224;
@@ -106,6 +109,7 @@ fn setStatus() void {
         buf1.len,
         FMT_BATVOL,
         fBatCapacity,
+        batMark(),
         fVolume,
         if (fIsOn) @as([*:0]const u8, "") else "M",
     ));
@@ -134,21 +138,52 @@ fn setStatus() void {
 var bcfd: c_int = -1;
 var fBatCapacity: u8 = 0;
 fn readBatCapacity() void {
-    // No battery (desktop / VM): leave fBatCapacity at 0 and skip I/O.
-    if (bcfd < 0) return;
     var buf: [8]u8 = undefined;
     _ = c.lseek(bcfd, 0, c.SEEK_SET);
-    const n: isize = c.read(bcfd, &buf, 8);
-    if (n < 1) return; // transient read error — keep last known value
-    const un: usize = @intCast(n);
-    if (buf[un - 1] == '\n')
-        buf[un - 1] = 0
+    const n: usize = @intCast(c.read(bcfd, &buf, 8));
+    if (n < 1) @panic("read bcfd");
+    if (buf[n - 1] == '\n')
+        buf[n - 1] = 0
     else
-        buf[un] = 0;
+        buf[n] = 0;
     var endptr: [*c]u8 = undefined;
     const value: c_long = c.strtol(&buf, &endptr, 10);
-    if (endptr == @as([*c]u8, @ptrCast(&buf))) return;
+    if (endptr == @as([*c]u8, @ptrCast(&buf))) @panic("strtol");
     fBatCapacity = @intCast(value);
+}
+
+var bsfd: c_int = -1;
+// Charger state from BAT0/status. `.charging` is real current flow; `.plugged`
+// covers "Full" and "Not charging" — charger attached but the pack holding
+// (e.g. at the charge limit) — shown as `F` after the capacity.
+const BatState = enum { none, plugged, charging };
+var fBatState: BatState = .none;
+
+fn batMark() [*:0]const u8 {
+    return switch (fBatState) {
+        .charging => "+",
+        .plugged => "F",
+        .none => "",
+    };
+}
+
+fn readBatStatus() void {
+    if (bsfd < 0) return;
+    var buf: [32]u8 = undefined;
+    _ = c.lseek(bsfd, 0, c.SEEK_SET);
+    const n: usize = @intCast(c.read(bsfd, &buf, buf.len - 1));
+    if (n < 1) {
+        fBatState = .none;
+        return;
+    }
+    buf[n] = 0;
+    const s = std.mem.trim(u8, std.mem.sliceTo(buf[0..], 0), " \t\r\n");
+    fBatState = if (std.mem.eql(u8, s, "Charging"))
+        .charging
+    else if (std.mem.eql(u8, s, "Full") or std.mem.eql(u8, s, "Not charging"))
+        .plugged
+    else
+        .none;
 }
 
 var mixer: ?*c.snd_mixer_t = null;
@@ -192,10 +227,14 @@ var last_monotonic: i64 = 0;
 //     costs the bar nothing while waiting (probeStart/probeFinish).
 //
 // zlstatus still runs a one-minute timer for the clock and battery. The network
-// keeps its own short retry timer, armed ONLY while the last verdict was
-// unhealthy (probeRetryArm/probeTick) and disarmed the moment a probe succeeds,
-// so a dead link, exit node or captive portal heals within a couple of seconds
-// without turning a healthy system into a polling loop.
+// keeps its own probe timer (probeSchedule/probeTick) at one of two cadences:
+// a slow HEARTBEAT while the last verdict was good, and a fast retry the moment
+// it turns bad. The heartbeat exists because nothing local ever reports the one
+// failure config can't see — a silent WAN outage, where link, route, IP, DNS and
+// tailscaled all stay green while no packet leaves the machine. Without it, the
+// bar would keep its last good verdict forever; with it, a silent outage is
+// bounded to PROBE_HEARTBEAT_SEC. It is the only periodic network work zlstatus
+// does, and it is a single non-blocking TCP SYN.
 //
 // Each layer's health is inferred from CONFIGURATION (is there a default route,
 // does resolv.conf list nameservers, is tailscaled Running) rather than by
@@ -518,6 +557,11 @@ fn netRender(route: RouteInfo) void {
 }
 
 fn netInit() void {
+    // Guarantee the reachability heartbeat is running even before the first
+    // verdict lands (and in the no-route case, where probeStart has nothing to
+    // connect to yet). probeFinish re-arms it at the right cadence thereafter.
+    probeSchedule();
+
     netfd = c.socket(c.AF_NETLINK, c.SOCK_RAW | c.SOCK_NONBLOCK, c.NETLINK_ROUTE);
 
     netRefresh();
@@ -612,6 +656,54 @@ fn netHandleEvent() void {
     netRefresh();
 }
 
+// --- Battery charger uevents -----------------------------------------------
+// Plugging/unplugging the charger is a kernel KOBJ_CHANGE uevent on the
+// power_supply class. Subscribing to the kernel's uevent netlink group makes the
+// charging indicator instant with no polling at all (the bind needs no
+// privileges here — verified as this user). Every uevent is drained; only
+// power_supply changes are acted on.
+var ueventfd: c_int = -1;
+
+fn ueventInit() void {
+    ueventfd = c.socket(c.AF_NETLINK, c.SOCK_DGRAM | c.SOCK_NONBLOCK, c.NETLINK_KOBJECT_UEVENT);
+    if (ueventfd < 0) {
+        _ = c.fprintf(c.stderr, "batt: uevent socket() failed, charging updates only on the minute tick\n");
+        return;
+    }
+    var addr: c.sockaddr_nl = std.mem.zeroes(c.sockaddr_nl);
+    addr.nl_family = c.AF_NETLINK;
+    addr.nl_groups = 1; // kernel-originated uevents
+    if (c.bind(ueventfd, @ptrCast(&addr), @sizeOf(c.sockaddr_nl)) < 0) {
+        _ = c.fprintf(c.stderr, "batt: uevent bind() failed, charging updates only on the minute tick\n");
+        _ = c.close(ueventfd);
+        ueventfd = -1;
+        return;
+    }
+    var event = c.epoll_event{
+        .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
+        .data = .{ .u64 = @intFromEnum(Event.Uevent) },
+    };
+    // Non-fatal: without this the minute tick still refreshes the indicator.
+    _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, ueventfd, &event);
+}
+
+fn ueventHandle() void {
+    if (ueventfd < 0) return;
+    // Edge-triggered: drain every queued uevent so the fd goes quiet again.
+    var buf: [8192]u8 = undefined;
+    var power_changed = false;
+    while (true) {
+        const n = c.recv(ueventfd, &buf, buf.len, 0);
+        if (n <= 0) break;
+        const msg = buf[0..@intCast(n)];
+        if (std.mem.indexOf(u8, msg, "SUBSYSTEM=power_supply") != null)
+            power_changed = true;
+    }
+    if (!power_changed) return;
+    readBatCapacity();
+    readBatStatus();
+}
+
 // --- Internet reachability probe -------------------------------------------
 // The one thing the config checks above cannot answer: with the link up, the
 // route installed, nameservers listed and tailscaled Running, every signal is
@@ -646,11 +738,15 @@ const PROBE_STUCK_SEC: i64 = 8;
 // How often to re-probe while the last verdict was unhealthy. A once-a-minute
 // tick is far too coarse to notice the internet COMING BACK: the bar would keep
 // saying `no-net` for up to a minute after connectivity returned, which reads as
-// "still broken". Armed only while net_ok == false and disarmed the instant a
-// probe succeeds, so the healthy case still does zero periodic network work.
+// "still broken". So the bad case retries every PROBE_RETRY_SEC.
 const PROBE_RETRY_SEC: i64 = 2;
+// Heartbeat while the last verdict was good. This is the ONLY thing that can
+// notice a silent WAN outage (dead exit node, upstream/router gone) — every
+// local signal stays green in that state and no kernel event fires — so it
+// bounds how long the bar can sit on a stale verdict. It is one non-blocking
+// TCP SYN every PROBE_HEARTBEAT_SEC, i.e. no measurable cost.
+const PROBE_HEARTBEAT_SEC: i64 = 10;
 var probe_timerfd: c_int = -1;
-var probe_timer_armed: bool = false;
 
 var probe_fd: c_int = -1;
 // null until a probe has produced a verdict. Null is NOT "unreachable": at
@@ -740,44 +836,35 @@ fn probeFinish(stuck: bool) void {
     }
     netRender(cached_route);
 
-    // While unhealthy, keep re-probing so recovery is noticed quickly instead
-    // of at the next minute tick. Stop the moment we're healthy again.
-    if (net_ok == false) probeRetryArm() else probeRetryDisarm();
+    // Reschedule at the cadence the fresh verdict deserves: fast retry while
+    // unhealthy, slow heartbeat while healthy.
+    probeSchedule();
 }
 
-/// Start the short retry timer (if not already running). Auto-repeating: it
-/// keeps firing every PROBE_RETRY_SEC until probeRetryDisarm, so an in-flight
-/// stuck probe still gets its expiry check on the next tick.
-fn probeRetryArm() void {
-    if (probe_timerfd < 0 or probe_timer_armed) return;
+/// (Re)arm the probe timer at the cadence the current verdict deserves:
+/// PROBE_RETRY_SEC while unhealthy (so recovery shows up within a couple of
+/// seconds), PROBE_HEARTBEAT_SEC while healthy (so a silent WAN outage is
+/// noticed rather than held as a stale good verdict). Auto-repeating: it keeps
+/// firing until rescheduled, so an in-flight stuck probe still gets its expiry
+/// check on the next tick.
+fn probeSchedule() void {
+    if (probe_timerfd < 0) return;
+    const secs: i64 = if (net_ok == false) PROBE_RETRY_SEC else PROBE_HEARTBEAT_SEC;
     const it = c.itimerspec{
-        .it_value = .{ .tv_sec = PROBE_RETRY_SEC, .tv_nsec = 0 },
-        .it_interval = .{ .tv_sec = PROBE_RETRY_SEC, .tv_nsec = 0 },
-    };
-    if (c.timerfd_settime(probe_timerfd, 0, &it, null) == 0)
-        probe_timer_armed = true;
-}
-
-/// Stop the retry timer. Called on a healthy verdict (and could be called at
-/// shutdown); a zeroed itimerspec disarms a timerfd.
-fn probeRetryDisarm() void {
-    if (probe_timerfd < 0 or !probe_timer_armed) return;
-    const it = c.itimerspec{
-        .it_value = .{ .tv_sec = 0, .tv_nsec = 0 },
-        .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 },
+        .it_value = .{ .tv_sec = secs, .tv_nsec = 0 },
+        .it_interval = .{ .tv_sec = secs, .tv_nsec = 0 },
     };
     _ = c.timerfd_settime(probe_timerfd, 0, &it, null);
-    probe_timer_armed = false;
 }
 
-/// Probe maintenance. Runs from BOTH the short retry timer (while unhealthy)
-/// and the once-a-minute tick (a safety net):
+/// Probe maintenance. Runs from the probe timer (heartbeat while healthy, fast
+/// retry while unhealthy) and, as a belt-and-braces safety net, from the
+/// once-a-minute tick:
 ///  - a probe still in flight expires if it outran its deadline;
-///  - otherwise, a new probe is armed only while the last verdict was UNHEALTHY,
-///    so a silent failure (dead exit node, captive portal) can heal itself.
-/// The retry timer exists precisely so recovery shows up in ~PROBE_RETRY_SEC
-/// rather than at the next clock tick. A healthy network does no periodic work
-/// at all — real events (netlink, inotify, probe completion) drive everything.
+///  - otherwise a new probe is armed. The timer already fires at the right
+///    cadence (probeSchedule), so this simply refills the pipe each tick.
+/// Real events still drive everything else: netlink (link/route/addr), inotify
+/// (resolv.conf) and suspend/resume each refresh and probe immediately.
 fn probeTick() void {
     const elapsed = probeElapsedSec(); // also detects suspend/resume
     if (probe_fd >= 0) {
@@ -785,8 +872,7 @@ fn probeTick() void {
         probeFinish(true);
         return;
     }
-    if (net_ok == false)
-        probeStart(cached_route.has_default);
+    probeStart(cached_route.has_default);
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,15 +1150,22 @@ pub fn main() u8 {
     if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, timerfd, &event) < 0)
         @panic("epoll_ctl");
 
-    // Battery capacity — optional (desktops / VMs often have no BAT*).
-    // Try BAT0 then BAT1; if neither exists, status shows B:0 and we skip updates.
+    // Battery capacity
     bcfd = c.open(BAT ++ "capacity", c.O_RDONLY);
-    if (bcfd < 0) bcfd = c.open("/sys/class/power_supply/BAT1/capacity", c.O_RDONLY);
-    if (bcfd >= 0) {
-        // closed at process exit; no defer so the fd stays valid for the event loop
-        readBatCapacity();
+    if (bcfd < 0) @panic("open BAT capacity");
+    defer _ = c.close(bcfd);
+    readBatCapacity();
+
+    // Battery charging status (for the `+` marker). Non-fatal: a missing file
+    // just means no charging indicator, not a dead bar.
+    bsfd = c.open(BAT ++ "status", c.O_RDONLY);
+    defer {
+        if (bsfd >= 0) _ = c.close(bsfd);
+    }
+    if (bsfd < 0) {
+        _ = c.fprintf(c.stderr, "batt: open BAT status failed, no charging indicator\n");
     } else {
-        fBatCapacity = 0;
+        readBatStatus();
     }
 
     // ALSA
@@ -1107,10 +1200,10 @@ pub fn main() u8 {
     if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, alsafd.fd, &event) < 0)
         @panic("epoll_ctl");
 
-    // Short retry timer for the reachability probe: armed only while the last
-    // verdict was unhealthy (probeRetryArm), so recovery from a silent outage
-    // is noticed in ~PROBE_RETRY_SEC instead of at the next clock tick. Created
-    // before netInit() because the first probe may fail and arm it immediately.
+    // Probe timer for the reachability check: fast retry while the last verdict
+    // was unhealthy (~PROBE_RETRY_SEC) and slow heartbeat while it was healthy
+    // (~PROBE_HEARTBEAT_SEC — see probeSchedule). Created before netInit()
+    // because netInit arms it and may start/complete the first probe.
     probe_timerfd = c.timerfd_create(c.CLOCK_MONOTONIC, c.TFD_NONBLOCK);
     if (probe_timerfd < 0) @panic("timerfd_create probe");
     defer _ = c.close(probe_timerfd);
@@ -1125,6 +1218,9 @@ pub fn main() u8 {
     // watcher (inotify) - both non-fatal
     netInit();
     dnsInit();
+
+    // Charger plug/unplug uevents (power_supply class) - non-fatal
+    ueventInit();
 
     // Everything fast (time, battery, volume, network) is known by now —
     // paint it. This is the FIRST paint, so the bar never appears with
@@ -1164,6 +1260,7 @@ const Event = enum(u8) {
     DnsChange,
     ProbeDone,
     ProbeRetry,
+    Uevent,
 
     fn handleTimeout1m() void {
         readTime();
@@ -1171,8 +1268,9 @@ const Event = enum(u8) {
         var exp_count: u64 = undefined;
         _ = c.read(timerfd, &exp_count, @sizeOf(u64));
         readBatCapacity();
+        readBatStatus();
         // Network is event-driven (netlink + inotify + probe). The only
-        // periodic network work is probe self-healing below.
+        // periodic network work is the probe heartbeat/self-heal below.
         probeTick();
         // Retry MPD connection if it dropped (e.g. mpd wasn't running at startup)
         if (mpdfd < 0) mpdConnect();
@@ -1199,11 +1297,15 @@ const Event = enum(u8) {
     }
 
     fn handleProbeRetry() void {
-        // Consume the expiration. Auto-repeating while armed, so there may be
-        // more than one pending; one read resets the count.
+        // Consume the expiration. Auto-repeating while scheduled, so there may
+        // be more than one pending; one read resets the count.
         var exp: u64 = undefined;
         _ = c.read(probe_timerfd, &exp, @sizeOf(u64));
         probeTick();
+    }
+
+    fn handleUevent() void {
+        ueventHandle();
     }
 
     fn handleEvent(self: Event) void {
@@ -1215,6 +1317,7 @@ const Event = enum(u8) {
             .DnsChange => handleDnsChange(),
             .ProbeDone => handleProbeDone(),
             .ProbeRetry => handleProbeRetry(),
+            .Uevent => handleUevent(),
         }
     }
 };
