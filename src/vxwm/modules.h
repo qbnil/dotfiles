@@ -62,6 +62,7 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 #define BAR_HEIGHT 1 // Support for changing bar height.
 #define BAR_PADDING 1 // Support for changing the bar padding.
 #define OCCUPIED_TAGS_DECORATION 0 // This provides the ability to use an alternative text for tags which contain at least one window aka occupied tags.
+#define ARCH_ICON 1 // Arch logo (Nerd Font) in the far-left bar slot, before the tags; left-click runs archiconcmd (config.h).
 
 /* External */
 #define EXTERNAL_BARS 1 // Support for external bars, essencial if you want to use external bars.

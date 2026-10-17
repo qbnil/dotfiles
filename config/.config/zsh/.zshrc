@@ -70,6 +70,11 @@ function y() {
 }
 
 
+# shared aliases (eza for ls, zoxide for cd); guarded, no-op if not installed
+[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/shell/alias" ] \
+    && . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/alias"
+
+
 # set up prompt
 NEWLINE=$'\n'
 PROMPT="${NEWLINE}%K{#2E3440}%F{#E5E9F0}$(date +%_I:%M%P) %K{#3b4252}%F{#ECEFF4} %n %K{#4c566a} %~ %f%k ❯ " # nord theme
@@ -82,7 +87,7 @@ echo -e "${NEWLINE}\x1b[38;5;137m\x1b[48;5;0mit's $(print -P '%D{%_I:%M%P}\n') \
 
 # autosuggestions
 # requires zsh-autosuggestions
-# source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 
 typeset -U path PATH # keep PATH entries unique (~/.local/bin comes from xdg-env.sh)
 

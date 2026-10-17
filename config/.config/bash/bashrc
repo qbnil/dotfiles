@@ -3,6 +3,13 @@
 
 . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/xdg-env.sh"
 
+# Plain fallbacks; shared aliases below may replace `ls` with eza.
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
+
+# Shared aliases (eza, zoxide, ...). Sourced last so a modern `ls` wins over the
+# plain fallback above when eza is installed.
+[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/shell/alias" ] \
+    && . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/alias"
+
 PS1='[\u@\h \W]\$ '

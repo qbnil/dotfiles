@@ -1,6 +1,7 @@
 alsa-utils
 aria2
 base
+bat
 bc
 brightnessctl
 btop
@@ -11,7 +12,9 @@ cmatrix
 cuda
 dnsmasq
 efibootmgr
+eza
 fastfetch
+fd
 feh
 flameshot
 go
@@ -52,6 +55,7 @@ pass
 pipewire-alsa
 pipewire-jack
 qemu-desktop
+redshift
 reflector
 rmpc
 snapper
@@ -68,5 +72,7 @@ xdg-desktop-portal-gtk
 xorg-xrefresh
 xsettingsd
 zip
+zoxide
+zsh-autosuggestions
 zsh-syntax-highlighting
 x11-ssh-askpass

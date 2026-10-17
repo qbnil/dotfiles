@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- vxpanel: the night light and the per-output software brightness no longer overwrite each other. Both own the CRTC gamma ramp, and `xrandr --output … --brightness` reset it to neutral, so touching *Brightness (software)* (or the `xrandr --brightness` line `startup.sh` wrote) wiped the `redshift` colour filter - and vice versa. The Display page now applies the colour first and then scales each output's ramp by its brightness factor via `XRRGet/SetCrtcGamma` (ctypes), so the two compose per output. `startup.sh` keeps a single `vxpanel --apply-display` line that replays the whole composition at login, and the colour-temperature slider gained a live label (`warm`, `neutral - no warm filter`, …) that makes the direction obvious (lower K = warmer, 6500K = off).
+
+- vxpanel: sliders now remember their values across launches. The night-light temperature and per-output software-brightness sliders were hardcoded to their defaults on start (so `Color temperature` always snapped back to 4500K even though `startup.sh` kept the real value at login). Both now persist to `config.json` and restore on launch; `Reset` returns the temperature to `NIGHT_DEFAULT` (4500K). A note near the slider marks 4500K as the default. Backlight, volume and pointer-speed sliders already restored from live system state, so they were left as-is.
+
+- Comfort/QoL additions, all declared in `bootstrap/packages-native.txt`:
+  - `zsh-autosuggestions` - the source line in `.zshrc` was present but commented out, so the feature never loaded. Uncommented; it pairs with the already-live `zsh-syntax-highlighting`.
+  - `brightnessctl` was already in the package list but not present on the live system, so the `XF86MonBrightnessUp/Down` binds (`brightnessctl set 5%+/-`) did nothing.
+  - `redshift` - `vxpanel`'s Display page auto-detects `redshift`/`gammastep`; with it installed the night-light colour-temperature slider appears and works.
+  - `bat` + `fd` - `FZF_DEFAULT_OPTS` already previews with `bat`, so the preview was broken without it; `fd` gives fzf a faster default walker.
+  - `eza` + `zoxide` - new shared `~/.config/shell/alias` (sourced by both `bashrc` and `.zshrc`) aliases `ls`/`ll`/`la`/`lt` to eza and enables zoxide's `z`/`zi`. All guarded by `command -v`, so the file is a no-op until the packages are installed.
+- `~/.config/shell/alias` added (sourced by `bashrc` and `.zshrc`); documented in the README "Shell configuration" section.
+
 - Xresources is now a single generated file: `~/.config/x11/Xresources` is rebuilt by the new `~/.local/bin/xresources-gen` (static Xft/cursor block + the current pywal palette). This removes the duplicate `~/.Xresources` - pywal's palette previously reached the session through two symlinks into `~/.cache/wal/colors.Xresources` - and makes the static Xft/cursor settings actually apply (the old tracked `config/.config/x11/Xresources` was shadowed by the palette symlink). `Xft.dpi` is intentionally **not** set, so fonts keep using the real screen DPI instead of a hard-coded 96.
   - `xrdb-reload` now runs `xresources-gen`, then merges `~/.config/x11/Xresources`, `~/.cache/wal/xrdb_extra` and `~/.config/vxpanel/Xresources` (vxpanel last). `xinitrc`, `rvx` and `pywal16` are unchanged callers.
   - `config/.config/x11/Xresources` is deleted and git-ignored: the live file must never be tracked/stowed, or pywal would write straight into the repository through the Stow symlink.
@@ -17,6 +29,7 @@
   - Brightness keys (`XF86MonBrightnessUp/Down`) call `brightnessctl set 5%+/5%-`; `brightnessctl` added to `bootstrap/packages-native.txt`.
 - vxwm fix: `up_vol`, `down_vol` and `mute_vol` were not NULL-terminated, but `spawn()` hands them to `execvp()`, which reads until NULL (undefined behaviour). They are terminated now.
 - Cheatsheet (`Super+/`) lists the new binds.
+- vxwm: an Arch logo (Nerd Font `U+F303`) now sits in the far-left bar slot, before the tag numbers, and left-clicking it opens `vxpanel`. New `ARCH_ICON` switch in `modules.h`; the glyph and the command are `ARCH_ICON_GLYPH` / `archiconcmd` in `config.h`. A short vertical rule is drawn between the logo and the first tag so the icon does not sit right against the numbers; it is sized and spaced by `ARCH_ICON_SEP_W` / `ARCH_ICON_SEP_H` / `ARCH_ICON_SEP_GAP` / `ARCH_ICON_TAG_GAP` (set the width to 0 to drop it), and `ARCH_ICON_SEP_H` matches the height of the `|` the window title shows between `OC` and the title text so the rule reads as the same separator. The logo, gaps and rule are all painted in the normal scheme so the slot matches the rest of the bar. Icon and rule share one `ClkArchIcon` click region, so the rest of the status keeps its existing `ClkStatusText` bind (the network menu). No `zlstatus` change: the bar is drawn by vxwm.
 
 - Cursor theme and pywal colours now survive reboot, `rvx` and wallpaper changes:
   - `vxpanel` always writes its cursor/DPI to `~/.config/vxpanel/Xresources` instead of depending on `~/.Xresources` being a pywal symlink (which `install.sh` removes).

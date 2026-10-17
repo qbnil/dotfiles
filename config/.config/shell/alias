@@ -1,0 +1,26 @@
+# Shared interactive aliases for bash and zsh.
+# Sourced from ~/.config/bash/bashrc and ~/.config/zsh/.zshrc.
+# Every block is guarded by `command -v`, so this is a harmless no-op when the
+# tool is not installed - the aliases simply appear once the package is.
+# This file is a no-op in non-interactive shells (callers only source it there).
+
+# eza (modern ls) -----------------------------------------------------------
+# Replaces the plain `ls`; --icons uses the Nerd Font already in use by the
+# bar, terminal and dmenu. The --git column appears only in a git repo.
+if command -v eza >/dev/null 2>&1; then
+  alias ls='eza --group-directories-first --icons=auto'
+  alias ll='eza -l  --group-directories-first --icons=auto --git'
+  alias la='eza -la --group-directories-first --icons=auto --git'
+  alias lt='eza --tree --level=2 --group-directories-first --icons=auto'
+fi
+
+# zoxide (smarter cd) -------------------------------------------------------
+# `z <fragment>` jumps to the most frecent match; `zi` opens an fzf picker.
+# init is per-shell, so branch on the running shell.
+if command -v zoxide >/dev/null 2>&1; then
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    eval "$(zoxide init zsh)"
+  elif [ -n "${BASH_VERSION:-}" ]; then
+    eval "$(zoxide init bash)"
+  fi
+fi

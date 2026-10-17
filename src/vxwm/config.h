@@ -28,6 +28,35 @@ static const char *opencode_cmd[] = { "st", "-e", "opencode", NULL };
 static const char *claude_cmd[] = { "st", "-e", "claude", NULL };
 static const char *tailscaletoggle[] = { "tailscaletoggle", NULL };
 static const char *netmenu[] = { "networkmanager_dmenu", NULL };
+#if ARCH_ICON
+/* Arch logo drawn in the far-left bar slot (also see ARCH_ICON in modules.h).
+ * U+F303 is the Arch Linux glyph from Nerd Fonts; swap it for any other Nerd
+ * Font codepoint if you prefer (e.g. "\uf17c" is the Tux penguin).
+ * The logo is padded by lrpad/2 on the left, exactly like a tag.
+ * Left-clicking the logo runs archiconcmd below. */
+#define ARCH_ICON_GLYPH "\uf303"
+/* Divider drawn between the logo and the tags, so the icon does not sit right
+ * up against the first tag. It is a plain vertical rule, ARCH_ICON_SEP_W wide
+ * and ARCH_ICON_SEP_H tall, centred vertically in the bar and painted in the
+ * normal foreground colour. Set ARCH_ICON_SEP_W to 0 to drop the divider.
+ *
+ * ARCH_ICON_SEP_GAP is the gap (px) between the logo and the rule, and
+ * ARCH_ICON_TAG_GAP the gap between the rule and the first tag. The rule is
+ * deliberately placed by these two gaps rather than by the logo's cell: the
+ * Nerd Font logo glyph has a 13px advance but ~22px of ink, so its ink spills
+ * ~9px past the cell and a cell-aligned rule would sit much closer to the logo
+ * than the logo sits to the bar edge. These gaps make the visible spacing even
+ * (left edge - logo - rule - tags). Left-clicking the rule opens archiconcmd.
+ *
+ * ARCH_ICON_SEP_H matches the height of the "|" that window titles put between
+ * their label and the title text (20px in JetBrainsMono Nerd Font size=12 at
+ * 128 DPI), so the rule reads as the same separator. */
+#define ARCH_ICON_SEP_W 2
+#define ARCH_ICON_SEP_H 20
+#define ARCH_ICON_SEP_GAP 9
+#define ARCH_ICON_TAG_GAP 14
+static const char *archiconcmd[] = { "vxpanel", NULL };
+#endif
 /* Needs `brightnessctl` (and your user in the `video` group or its udev rule). */
 static const char *bright_up[]   = { "brightnessctl", "-q", "set", "5%+", NULL };
 static const char *bright_down[] = { "brightnessctl", "-q", "set", "5%-", NULL };
@@ -341,7 +370,7 @@ static const Key keys[] = {
 };
 
 /* button definitions */
-/* click can be ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle, ClkClientWin, or ClkRootWin */
+/* click can be ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle, ClkClientWin, ClkRootWin, or ClkArchIcon */
 static const Button buttons[] = {
 	/* click                event mask      button          function        argument */
 #if INFINITE_TAGS
@@ -362,6 +391,9 @@ static const Button buttons[] = {
 	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
 	{ ClkWinTitle,          0,              Button2,        swapmaster,     {0} },
 	{ ClkStatusText,        0,              Button1,        spawn,          {.v = netmenu } },
+#if ARCH_ICON
+	{ ClkArchIcon,          0,              Button1,        spawn,          {.v = archiconcmd } },
+#endif
 	{ ClkClientWin,         MODKEY,         Button1,        movemouse,      {0} },
 	{ ClkClientWin,         MODKEY,         Button2,        togglefloating, {0} },
 	{ ClkClientWin,         MODKEY,         Button3,        resizemouse,    {0} },

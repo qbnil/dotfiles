@@ -106,7 +106,7 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 #endif
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
-       ClkClientWin, ClkRootWin, ClkLast }; /* clicks */
+       ClkClientWin, ClkRootWin, ClkArchIcon, ClkLast }; /* clicks */
 
 typedef union {
 	int i;
@@ -628,6 +628,18 @@ buttonpress(XEvent *e)
 		focus(NULL);
 	}
 	if (ev->window == selmon->barwin) {
+#if ARCH_ICON
+		/* far-left Arch logo + divider (+ their gaps) form one clickable slot */
+		unsigned int iaw = TEXTW(ARCH_ICON_GLYPH);
+#if ARCH_ICON_SEP_W > 0
+		iaw += ARCH_ICON_SEP_GAP + ARCH_ICON_SEP_W + ARCH_ICON_TAG_GAP;
+#endif
+#else
+		unsigned int iaw = 0;
+#endif
+		if (ev->x < iaw) {
+			click = ClkArchIcon;
+		} else {
 #if !OCCUPIED_TAGS_DECORATION
 		i = x = 0;
 #else 
@@ -636,6 +648,7 @@ buttonpress(XEvent *e)
 		for (c = m->clients; c; c = c->next)
 			occ |= c->tags;
 #endif
+		x += iaw; /* tags start after the Arch logo slot */
 		do
 #if !OCCUPIED_TAGS_DECORATION
 			x += TEXTW(tags[i]);
@@ -652,6 +665,7 @@ buttonpress(XEvent *e)
 			click = ClkStatusText;
 		else
 			click = ClkWinTitle;
+		}
 	} else if ((c = wintoclient(ev->window))) {
 		focus(c);
 		restack(selmon);
@@ -1008,7 +1022,26 @@ drawbar(Monitor *m)
 		if (c->isurgent)
 			urg |= c->tags;
 	}
+#if ARCH_ICON
+	/* Arch logo in the far-left slot (see ARCH_ICON in modules.h and
+	 * archiconcmd/ARCH_ICON_GLYPH in config.h). The whole slot - logo, the
+	 * gaps and the divider - is painted in the normal scheme's background
+	 * first, so the gaps do not show the root window, then the logo and the
+	 * divider are drawn on top. */
+	drw_setscheme(drw, scheme[SchemeNorm]);
+	x = TEXTW(ARCH_ICON_GLYPH);
+#if ARCH_ICON_SEP_W > 0
+	x += ARCH_ICON_SEP_GAP + ARCH_ICON_SEP_W + ARCH_ICON_TAG_GAP;
+#endif
+	drw_rect(drw, 0, 0, x, bh, 1, 1);
+	drw_text(drw, 0, 0, TEXTW(ARCH_ICON_GLYPH), bh, lrpad / 2, ARCH_ICON_GLYPH, 0);
+#if ARCH_ICON_SEP_W > 0
+	drw_rect(drw, TEXTW(ARCH_ICON_GLYPH) + ARCH_ICON_SEP_GAP,
+	         (bh - ARCH_ICON_SEP_H) / 2, ARCH_ICON_SEP_W, ARCH_ICON_SEP_H, 1, 0);
+#endif
+#else
 	x = 0;
+#endif
 	for (i = 0; i < LENGTH(tags); i++) {
 #if !OCCUPIED_TAGS_DECORATION
 		w = TEXTW(tags[i]);

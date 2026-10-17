@@ -165,6 +165,13 @@ Rebuild (as above), then restart the session with `rvx` to pick up the new binar
 
 Secrets belong in `~/.config/shell/secrets.sh`; this file is ignored by git.
 
+Shared interactive aliases live in `~/.config/shell/alias`, sourced by both
+`bashrc` and `.zshrc`. Every block is guarded by `command -v`, so it stays a
+harmless no-op until the tool is installed:
+
+- `eza` replaces `ls` (with `ll`, `la`, `lt`); falls back to plain `ls` if absent.
+- `zoxide` provides `z <fragment>` / `zi` (fzf picker) for jumping between directories.
+
 ## XDG user directories
 
 `~/.config/user-dirs.dirs` deliberately defines the user directories in lowercase. The standard set is:

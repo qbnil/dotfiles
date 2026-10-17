@@ -14,6 +14,7 @@ WAL_DIR = H + "/.cache/wal"
 CONF_DIR = H + "/.config/vxpanel"
 STARTUP = CONF_DIR + "/startup.sh"
 VX_XRES = CONF_DIR + "/Xresources"
+NIGHT_DEFAULT = 4500  # default night-light colour temperature (K)
 VERT, HORZ = Gtk.Orientation.VERTICAL, Gtk.Orientation.HORIZONTAL
 WIN = None
 REDRAW = []
@@ -60,6 +61,92 @@ def bg(cmd):
         pass
 
 def have(x): return shutil.which(x) is not None
+
+# ---------------------------------------------------------------- display gamma
+# The colour temperature (redshift) and the per-output "software brightness"
+# (xrandr --brightness) both own the CRTC gamma ramp, so applying one used to
+# wipe the other.  The night light now sets the colour first and we then scale
+# each output's ramp by its brightness, so the two compose instead of fighting.
+def _xrr_open():
+    """Open X + XRandR, returning (x11, xrr, dpy, resources) or None."""
+    try:
+        libs = [ctypes.util.find_library(n) for n in ("X11", "Xrandr")]
+        if not all(libs): return None
+        x11, xrr = (ctypes.CDLL(l) for l in libs)
+        vp, ul, us = ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ushort
+        class Res(ctypes.Structure):
+            _fields_ = [("timestamp", ul), ("configTimestamp", ul), ("ncrtc", ctypes.c_int),
+                        ("crtcs", ctypes.POINTER(ul)), ("noutput", ctypes.c_int),
+                        ("outputs", ctypes.POINTER(ul)), ("nmode", ctypes.c_int),
+                        ("modes", ctypes.c_void_p)]
+        class Gam(ctypes.Structure):
+            _fields_ = [("size", ctypes.c_int), ("red", ctypes.POINTER(us)),
+                        ("green", ctypes.POINTER(us)), ("blue", ctypes.POINTER(us))]
+        x11.XOpenDisplay.restype = vp; x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XDefaultRootWindow.restype = ul; x11.XDefaultRootWindow.argtypes = [vp]
+        x11.XFlush.argtypes = [vp]; x11.XCloseDisplay.argtypes = [vp]
+        xrr.XRRGetScreenResources.restype = ctypes.POINTER(Res); xrr.XRRGetScreenResources.argtypes = [vp, ul]
+        xrr.XRRGetCrtcGamma.restype = ctypes.POINTER(Gam); xrr.XRRGetCrtcGamma.argtypes = [vp, ul]
+        xrr.XRRSetCrtcGamma.argtypes = [vp, ul, ctypes.POINTER(Gam)]
+        xrr.XRRFreeGamma.argtypes = [ctypes.POINTER(Gam)]
+        d = x11.XOpenDisplay(None)
+        if not d: return None
+        r = xrr.XRRGetScreenResources(d, x11.XDefaultRootWindow(d))
+        if not r: return None
+        return (x11, xrr, d, r)
+    except Exception:
+        return None
+
+def _xrr_out_index():
+    """Map output name -> index into the XRandR CRTC array (from xrandr --verbose 'CRTC: N')."""
+    out, name = {}, None
+    for line in sh("xrandr --verbose").splitlines():
+        m = re.match(r"^(\S+) connected", line)
+        if m: name = m[1]; continue
+        m = re.match(r"^\s*CRTC:\s*(\d+)", line)
+        if m and name is not None: out[name] = int(m[1]); name = None
+    return out
+
+def apply_display():
+    """Apply the night-light colour (redshift), then dim per output by scaling that
+    output's CRTC gamma ramp - so software brightness no longer erases the colour."""
+    nl = "redshift" if have("redshift") else "gammastep" if have("gammastep") else None
+    if nl and CFG.get("nightlight_k"):
+        subprocess.run([nl, "-P", "-O", str(int(CFG["nightlight_k"]))],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    x = _xrr_open()
+    if not x: return
+    try:
+        x11, xrr, d, r = x
+        idx = _xrr_out_index(); ncrtc = r.contents.ncrtc
+        for o in parse_xrandr():
+            b = int(CFG.get("bright-" + o["name"], 100))
+            if b == 100: continue
+            i = idx.get(o["name"])
+            if i is None or i >= ncrtc: continue
+            crtc = r.contents.crtcs[i]
+            g = xrr.XRRGetCrtcGamma(d, crtc)
+            if not g or g.contents.size <= 0: continue
+            f = b / 100.0
+            for ch in (g.contents.red, g.contents.green, g.contents.blue):
+                for k in range(g.contents.size):
+                    v = int(ch[k] * f)
+                    ch[k] = 0 if v < 0 else (65535 if v > 65535 else v)
+            xrr.XRRSetCrtcGamma(d, crtc, g); xrr.XRRFreeGamma(g)
+        x11.XFlush(d); x11.XCloseDisplay(d)
+    except Exception:
+        pass
+
+def display_cmd():
+    """The single startup.sh command that re-applies the whole display gamma."""
+    return shlex.join([os.path.realpath(__file__), "--apply-display"])
+
+def persist_display():
+    """Keep one startup.sh line for the composed colour + brightness gamma."""
+    for k in list(CFG):
+        if k.startswith("bright-"): persist(k, None)
+    persist("nightlight", None)
+    persist("display", display_cmd())
 
 def status(msg):
     if WIN:
@@ -301,11 +388,10 @@ def output_card(b, o, outs):
     row(c, "Resolution", rescb); row(c, "Refresh rate (Hz)", ratecb); row(c, "Rotation", rot)
     row(c, "Primary", prim)
     if others: row(c, "Position", pos)
+    bk = "bright-" + o["name"]
     def bright(v):
-        cmd = ["xrandr", "--output", o["name"], "--brightness", "%.2f" % (v / 100)]
-        persist("bright-" + o["name"], shlex.join(cmd))
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    row(c, "Brightness (software)", slider(30, 100, 100, 5, bright, instant=True, debounce=50))
+        cfg_set(bk, int(v)); persist_display(); apply_display()
+    row(c, "Brightness (software)", slider(30, 100, int(CFG.get(bk, 100)), 5, bright, instant=True, debounce=50))
     btns = [btn("Apply", apply, True)]
     if others: btns.append(btn("Turn off", off))
     btnrow(c, *btns)
@@ -323,13 +409,28 @@ def display():
         row(c, "Backlight", slider(1, 100, int(m[1]) if m else 100, 1, backlight, instant=True, debounce=50))
     nl = "redshift" if have("redshift") else "gammastep" if have("gammastep") else None
     if nl:
+        def temp_desc(v):
+            v = int(v)
+            for t, s in ((6500, "neutral - no warm filter"),
+                         (5800, "barely warm"),
+                         (5000, "slightly warm"),
+                         (4000, "warm"),
+                         (3000, "noticeably warm")):
+                if v >= t: return s
+            return "very warm (maximum night light)"
+        tdesc = Gtk.Label(label=temp_desc(CFG.get("nightlight_k", NIGHT_DEFAULT)), xalign=0)
         def night(v):
-            cmd = [nl, "-P", "-O", str(int(v))]
-            persist("nightlight", shlex.join(cmd))
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            cfg_set("nightlight_k", int(v))
+            tdesc.set_text(temp_desc(v))
+            persist_display(); apply_display()
+        ns = slider(2500, 6500, int(CFG.get("nightlight_k", NIGHT_DEFAULT)), 100, night, instant=True, debounce=100)
         def reset():
-            persist("nightlight", None); run([nl, "-x"], "night light reset")
-        row(c, "Color temperature (K)", slider(2500, 6500, 4500, 100, night, instant=True, debounce=100))
+            # restoring the default moves the slider too, so slider / label / screen agree
+            if int(ns.get_value()) != NIGHT_DEFAULT: ns.set_value(NIGHT_DEFAULT)
+            else: night(NIGHT_DEFAULT)
+        row(c, "Color temperature (K)", ns)
+        c.pack_start(tdesc, False, False, 0)
+        c.pack_start(Gtk.Label(label="Lower K = warmer. %dK is the default; 6500K is neutral (no warm filter). Saved and reapplied at login." % NIGHT_DEFAULT, xalign=0), False, False, 0)
         btnrow(c, btn("Reset", reset))
     elif not have("brightnessctl"):
         c.pack_start(Gtk.Label(label="Install brightnessctl and/or redshift for backlight and night light.", xalign=0), False, False, 0)
@@ -918,6 +1019,8 @@ class Panel(Gtk.Window):
         self.select(None, self.side.get_selected_row())
 
 def main():
+    if "--apply-display" in sys.argv:
+        apply_display(); return
     global WIN
     GLib.set_prgname("vxpanel")
     Gdk.set_program_class("vxpanel")
