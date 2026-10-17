@@ -24,8 +24,15 @@ count_selected = { fg = "#303446", bg = "#e5c890" }
 border_symbol = "│"
 border_style  = { fg = "#838ba7" }
 
-# Selected/hovered entry indicator
 syntect_theme = ""
+
+# : }}}
+
+
+# : Indicator of hovered file {{{
+
+[indicator]
+padding = { open = "█", close = "█" }
 
 # : }}}
 
