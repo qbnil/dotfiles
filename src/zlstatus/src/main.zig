@@ -68,6 +68,8 @@ fn writeStatus() void {
 // `B:99F` attached but holding (charge limit / full), `B:99` discharging. It
 // mirrors the existing ASCII style (`+ts`, `M` for muted) and needs no font.
 const FMT_BATVOL = "B:%d%s V:%d%s";
+// Desktop / VM fallback: with no battery present, only the volume segment.
+const FMT_VOL = "V:%d%s";
 const FMT_DATE = "%a %d %b %H:%M ";
 // BUF_LEN grew to fit "<net><now playing><batt/vol><date>"
 const BUF_LEN = 224;
@@ -102,17 +104,29 @@ fn setStatus() void {
         n += net_len;
     }
 
+    // Battery + volume. The battery portion is omitted entirely when no
+    // battery was found at startup (desktop / VM), leaving just the volume.
     appendSep(&n);
     const buf1: []u8 = status_buf[n..];
-    const n1: usize = @intCast(c.snprintf(
-        buf1.ptr,
-        buf1.len,
-        FMT_BATVOL,
-        fBatCapacity,
-        batMark(),
-        fVolume,
-        if (fIsOn) @as([*:0]const u8, "") else "M",
-    ));
+    const vol_mark: [*:0]const u8 = if (fIsOn) "" else "M";
+    const n1: usize = @intCast(if (bcfd >= 0)
+        c.snprintf(
+            buf1.ptr,
+            buf1.len,
+            FMT_BATVOL,
+            fBatCapacity,
+            batMark(),
+            fVolume,
+            vol_mark,
+        )
+    else
+        c.snprintf(
+            buf1.ptr,
+            buf1.len,
+            FMT_VOL,
+            fVolume,
+            vol_mark,
+        ));
     if (n1 >= buf1.len) @panic("snprintf");
     n += n1;
 
@@ -138,17 +152,20 @@ fn setStatus() void {
 var bcfd: c_int = -1;
 var fBatCapacity: u8 = 0;
 fn readBatCapacity() void {
+    // No battery (desktop / VM): leave fBatCapacity at 0 and skip I/O.
+    if (bcfd < 0) return;
     var buf: [8]u8 = undefined;
     _ = c.lseek(bcfd, 0, c.SEEK_SET);
-    const n: usize = @intCast(c.read(bcfd, &buf, 8));
-    if (n < 1) @panic("read bcfd");
-    if (buf[n - 1] == '\n')
-        buf[n - 1] = 0
+    const n: isize = c.read(bcfd, &buf, 8);
+    if (n < 1) return; // transient read error — keep last known value
+    const un: usize = @intCast(n);
+    if (buf[un - 1] == '\n')
+        buf[un - 1] = 0
     else
-        buf[n] = 0;
+        buf[un] = 0;
     var endptr: [*c]u8 = undefined;
     const value: c_long = c.strtol(&buf, &endptr, 10);
-    if (endptr == @as([*c]u8, @ptrCast(&buf))) @panic("strtol");
+    if (endptr == @as([*c]u8, @ptrCast(&buf))) return;
     fBatCapacity = @intCast(value);
 }
 
@@ -210,7 +227,6 @@ fn readTime() void {
 
 var timerfd: c_int = -1;
 var g_epollfd: c_int = -1;
-const BAT = "/sys/class/power_supply/BAT0/";
 const MAX_EVENTS = 8;
 var last_monotonic: i64 = 0;
 
@@ -788,8 +804,7 @@ fn probeStart(have_route: bool) void {
 
     var addr: c.sockaddr_in = std.mem.zeroes(c.sockaddr_in);
     addr.sin_family = c.AF_INET;
-    addr.sin_port = c.htons(PROBE_PORT);
-    if (c.inet_pton(c.AF_INET, PROBE_ADDR, &addr.sin_addr) != 1) {
+    addr.sin_port =    if (c.inet_pton(c.AF_INET, PROBE_ADDR, &addr.sin_addr) != 1) {
         _ = c.close(fd);
         return;
     }
@@ -1150,22 +1165,27 @@ pub fn main() u8 {
     if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, timerfd, &event) < 0)
         @panic("epoll_ctl");
 
-    // Battery capacity
-    bcfd = c.open(BAT ++ "capacity", c.O_RDONLY);
-    if (bcfd < 0) @panic("open BAT capacity");
-    defer _ = c.close(bcfd);
-    readBatCapacity();
-
-    // Battery charging status (for the `+` marker). Non-fatal: a missing file
-    // just means no charging indicator, not a dead bar.
-    bsfd = c.open(BAT ++ "status", c.O_RDONLY);
-    defer {
-        if (bsfd >= 0) _ = c.close(bsfd);
-    }
-    if (bsfd < 0) {
-        _ = c.fprintf(c.stderr, "batt: open BAT status failed, no charging indicator\n");
-    } else {
-        readBatStatus();
+    // Battery (optional — desktops and VMs often have no BAT*). Try BAT0 then
+    // BAT1; when neither exists the bar simply omits the battery segment and
+    // every battery read below and in the event loop is skipped (bcfd stays
+    // -1) instead of crashing the whole bar at startup.
+    const BAT_CAP = [_][:0]const u8{
+        "/sys/class/power_supply/BAT0/capacity",
+        "/sys/class/power_supply/BAT1/capacity",
+    };
+    const BAT_STATUS = [_][:0]const u8{
+        "/sys/class/power_supply/BAT0/status",
+        "/sys/class/power_supply/BAT1/status",
+    };
+    for (BAT_CAP, 0..) |path, i| {
+        bcfd = c.open(path, c.O_RDONLY);
+        if (bcfd < 0) continue;
+        readBatCapacity();
+        // Charging marker (`+`/`F`) is non-fatal: a missing status file just
+        // means no charging indicator, not a dead bar.
+        bsfd = c.open(BAT_STATUS[i], c.O_RDONLY);
+        if (bsfd >= 0) readBatStatus();
+        break;
     }
 
     // ALSA
@@ -1321,3 +1341,4 @@ const Event = enum(u8) {
         }
     }
 };
+
