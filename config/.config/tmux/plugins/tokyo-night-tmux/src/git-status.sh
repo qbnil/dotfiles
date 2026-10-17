@@ -57,16 +57,6 @@ if [[ $SYNC_MODE -eq 0 ]]; then
   NEED_PUSH=$(git log @{push}.. | wc -l | bc)
   if [[ $NEED_PUSH -gt 0 ]]; then
     SYNC_MODE=2
-  else
-    # Check if the remote branch is ahead of the local branch.
-    # Same as before, but based on the last-known origin ref. No fetch here:
-    # the tmux server has no tty, so a fetch would only trigger the askpass
-    # window (or fail) and never actually update anything.
-
-    REMOTE_DIFF="$(git diff --numstat "${BRANCH}" "origin/${BRANCH}" 2>/dev/null)"
-    if [[ -n $REMOTE_DIFF ]]; then
-      SYNC_MODE=3
-    fi
   fi
 fi
 
@@ -77,9 +67,6 @@ case "$SYNC_MODE" in
   ;;
 2)
   REMOTE_STATUS="$RESET#[bg=${THEME[background]},fg=${THEME[red]},bold]▒ 󰛃"
-  ;;
-3)
-  REMOTE_STATUS="$RESET#[bg=${THEME[background]},fg=${THEME[magenta]},bold]▒ 󰛀"
   ;;
 *)
   REMOTE_STATUS="$RESET#[bg=${THEME[background]},fg=${THEME[green]},bold]▒ "
