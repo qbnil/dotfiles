@@ -56,3 +56,9 @@ src/thunar/*.tar.bz2
 
 # Stow residuals
 .stow-local-ignore
+
+# OpenCode local secrets / backups
+config/.config/opencode/omniroute.key
+config/.config/opencode/service.json
+config/.config/opencode/auth.json
+config/.config/opencode/*.bak*

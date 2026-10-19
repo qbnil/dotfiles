@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""omni-limits - live OmniRoute provider limits + token tracker.
+
+A "limits widget" for OmniRoute. Unlike ~/.local/bin/quota, which reads the
+normalised /api/usage/quota endpoint (that endpoint reports 0 used / no total
+for every provider, so dollars never move), this reads the real per-connection
+quotas from /api/usage/provider-limits and adds a token/savings/cost tracker
+from /api/usage/history and /api/analytics/compression.
+
+Usage:
+  omni-limits                 # live, refresh every OMNIROUTE_INTERVAL (60) s
+  omni-limits --once          # print one snapshot and exit
+  omni-limits --once --no-color
+  omni-limits --interval 30
+  omni-limits --json          # raw snapshot as JSON (no rendering)
+
+Auth (first match wins):
+  1. $OMNIROUTE_MANAGEMENT_TOKEN
+  2. $OMNIROUTE_COOKIE            (full Cookie: header value)
+  3. dashboard auth_token cookie read from a local browser profile
+Base URL: $OMNIROUTE_BASE, default http://100.125.9.94:20128
+"""
+
+import argparse
+import glob
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+BASE = os.environ.get("OMNIROUTE_BASE", "http://100.125.9.94:20128").rstrip("/")
+HOST_MATCH = "100.125.9.94"
+
+BROWSER_DIRS = [
+    "~/.mozilla",
+    "~/.waterfox",
+    "~/.librewolf",
+    "~/.config/waterfox",
+    "~/.config/librewolf",
+    "~/.local/share/waterfox",
+    "~/.local/share/mozilla",
+    "~/.var/app",
+    "~/snap",
+]
+
+
+def color_enabled(no_color):
+    return (not no_color) and sys.stdout.isatty()
+
+
+class C:
+    def __init__(self, on):
+        self.on = on
+
+    def wrap(self, code, s):
+        return f"\033[{code}m{s}\033[0m" if self.on else s
+
+    def bold(self, s):
+        return self.wrap("1", s)
+
+    def dim(self, s):
+        return self.wrap("2", s)
+
+    def green(self, s):
+        return self.wrap("32", s)
+
+    def yellow(self, s):
+        return self.wrap("33", s)
+
+    def red(self, s):
+        return self.wrap("31", s)
+
+    def cyan(self, s):
+        return self.wrap("36", s)
+
+
+def read_cookie_from_browsers():
+    """Return the OmniRoute dashboard auth_token cookie value, or None."""
+    names = ("cookies.sqlite", "Cookies")
+    for base in BROWSER_DIRS:
+        base = os.path.expanduser(base)
+        if not os.path.isdir(base):
+            continue
+        for root, _dirs, files in os.walk(base):
+            for fn in files:
+                if fn not in names:
+                    continue
+                path = os.path.join(root, fn)
+                tmp = None
+                try:
+                    fd, tmp = tempfile.mkstemp(prefix="omni-cookie-")
+                    os.close(fd)
+                    shutil.copy2(path, tmp)
+                    con = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True)
+                    tok = None
+                    for table, hostcol in (
+                        ("moz_cookies", "host"),
+                        ("cookies", "host_key"),
+                    ):
+                        try:
+                            row = con.execute(
+                                f"select value from {table} "
+                                f"where {hostcol} like ? and name='auth_token' limit 1",
+                                (f"%{HOST_MATCH}%",),
+                            ).fetchone()
+                            if row:
+                                tok = row[0]
+                                break
+                        except sqlite3.Error:
+                            continue
+                    con.close()
+                    if tok:
+                        return tok
+                except (OSError, sqlite3.Error):
+                    pass
+                finally:
+                    if tmp and os.path.exists(tmp):
+                        os.unlink(tmp)
+    return None
+
+
+def auth_headers():
+    mt = os.environ.get("OMNIROUTE_MANAGEMENT_TOKEN")
+    if mt:
+        return {"Authorization": f"Bearer {mt}"}, "env:OMNIROUTE_MANAGEMENT_TOKEN"
+    ck = os.environ.get("OMNIROUTE_COOKIE")
+    if ck:
+        return {"Cookie": ck}, "env:OMNIROUTE_COOKIE"
+    tok = read_cookie_from_browsers()
+    if tok:
+        return {"Cookie": f"auth_token={tok}"}, "browser-cookie"
+    return {}, "none"
+
+
+def get_json(path, headers, timeout=20):
+    req = urllib.request.Request(BASE + path, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return {"__error__": f"HTTP {e.code}", "__body__": e.read()[:200].decode("utf-8", "replace")}
+    except Exception as e:  # noqa: BLE001
+        return {"__error__": str(e)}
+
+
+def human(n):
+    if n is None:
+        return "-"
+    n = float(n)
+    for unit in ("", "k", "M", "B"):
+        if abs(n) < 1000:
+            return f"{n:.0f}{unit}" if unit == "" else f"{n:.2f}{unit}".rstrip("0").rstrip(".")
+        n /= 1000.0
+    return f"{n:.1f}T"
+
+
+def money(n):
+    if n is None:
+        return "-"
+    try:
+        return f"${float(n):,.4f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return str(n)
+
+
+def age(iso):
+    if not iso:
+        return ""
+    try:
+        t = iso.replace("Z", "+00:00")
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(t)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        s = int((datetime.now(timezone.utc) - dt).total_seconds())
+        if s < 90:
+            return f"{s}s"
+        if s < 5400:
+            return f"{s // 60}m"
+        if s < 172800:
+            return f"{s // 3600}h"
+        return f"{s // 86400}d"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def until(iso):
+    if not iso:
+        return ""
+    try:
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        s = int((dt - datetime.now(timezone.utc)).total_seconds())
+        if s <= 0:
+            return "now"
+        d, s = divmod(s, 86400)
+        h, s = divmod(s, 3600)
+        m = s // 60
+        return (f"{d}d " if d else "") + (f"{h}h " if h or d else "") + f"{m}m"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def bar(pct, width=16):
+    if pct is None:
+        return " " * width
+    filled = max(0, min(width, round(pct * width / 100.0)))
+    return "#" * filled + "." * (width - filled)
+
+
+def qcolor(c, pct):
+    if pct is None:
+        return c.dim
+    if pct > 50:
+        return c.green
+    if pct > 20:
+        return c.yellow
+    return c.red
+
+
+def build_snapshot(headers):
+    return {
+        "provider_limits": get_json("/api/usage/provider-limits", headers),
+        "providers": get_json("/api/providers", headers),
+        "history": get_json("/api/usage/history", headers),
+        "compression": get_json("/api/analytics/compression", headers),
+        "logs": get_json("/api/usage/logs", headers),
+    }
+
+
+def render(snap, auth_src, c):
+    now = time.strftime("%H:%M:%S")
+    out = []
+    out.append(c.bold("OmniRoute limits + token tracker") + "  " + c.dim(f"{now}  auth={auth_src}"))
+    out.append(c.dim(f"base {BASE}"))
+
+    truth = snap.get("provider_limits", {})
+    providers = snap.get("providers", {})
+    hist = snap.get("history", {})
+    comp = snap.get("compression", {})
+
+    # connection id -> (provider, name)
+    cmap = {}
+    for conn in (providers.get("connections") or []) if isinstance(providers, dict) else []:
+        cmap[conn.get("id")] = (conn.get("provider"), conn.get("name") or conn.get("email") or "")
+
+    out.append("")
+    out.append(c.bold("PROVIDER LIMITS") + c.dim("  (active connections first; real quota, dollars move here)"))
+    caches = truth.get("caches") if isinstance(truth, dict) else None
+    if not caches:
+        err = truth.get("__error__") if isinstance(truth, dict) else None
+        out.append(c.red(f"  provider-limits unavailable: {err or 'empty'}"))
+    else:
+        def quota_rows(entry, prov, name, stale=False):
+            rows = []
+            quotas = entry.get("quotas") or {}
+            fetched = entry.get("fetchedAt")
+            plan = entry.get("plan")
+            flag = 0 if stale else 1
+            if quotas:
+                for kind, q in quotas.items():
+                    pct = None
+                    try:
+                        if q.get("total"):
+                            pct = 100.0 * (q.get("remaining", 0) / q["total"])
+                    except Exception:  # noqa: BLE001
+                        pct = None
+                    used, total = q.get("used"), q.get("total")
+                    if used is not None and total is not None:
+                        amt = f"{used:g}/{total:g}" + (" USD" if kind == "credit" else "")
+                    else:
+                        amt = "unlimited" if q.get("unlimited") else "-"
+                    rows.append((flag, pct if pct is not None else 101, prov, name,
+                                 kind, amt, q.get("resetAt"), fetched, plan, entry.get("message")))
+            else:
+                rows.append((flag, 101, prov, name, "-",
+                             entry.get("message") or "no quota reported", None, fetched, plan, None))
+            return rows
+
+        rows, stale = [], []
+        for cid, (prov, name) in cmap.items():
+            entry = caches.get(cid)
+            if entry is None:
+                rows.append((1, 101, prov or cid[:8], name, "-", "not polled yet",
+                             None, None, None, None))
+            else:
+                rows += quota_rows(entry, prov or cid[:8], name)
+        for cid, entry in caches.items():
+            if cid in cmap:
+                continue
+            stale += quota_rows(entry, "removed:" + cid[:8], "", stale=True)
+        rows.sort(key=lambda r: (r[0], r[1]))
+        stale.sort(key=lambda r: r[1])
+        for _flag, pct, prov, name, kind, amt, reset, fetched, plan, _msg in rows[:30]:
+            p = None if pct > 100 else pct
+            label = f"{prov[:16]:16} {name[:20]:20}"
+            col = qcolor(c, p)
+            pctxt = "n/a" if p is None else f"{p:3.0f}%"
+            line = f"  {label} {col(bar(p))} {col(pctxt)}  {kind} {amt}"
+            if reset:
+                line += c.dim(f"  reset {until(reset)}")
+            if plan:
+                line += c.dim(f"  [{plan}]")
+            if fetched:
+                line += c.dim(f"  age {age(fetched)}")
+            out.append(line)
+        if stale:
+            old = age(stale[0][7]) if stale[0][7] else "?"
+            out.append(c.dim(f"  -- {len(stale)} stale/removed connection quota rows hidden (oldest age {old}) --"))
+
+    out.append("")
+    out.append(c.bold("TOKEN TRACKER"))
+    if isinstance(comp, dict) and not comp.get("__error__"):
+        ru = comp.get("realUsage") or {}
+        out.append(
+            f"  saved {c.bold(human(comp.get('totalTokensSaved')))} tokens"
+            f"  avg {comp.get('avgSavingsPct')}%"
+            f"  {c.dim(str(comp.get('totalRequests')) + ' compressed requests')}"
+        )
+        out.append(
+            f"  prompt {human(ru.get('promptTokens'))}  completion {human(ru.get('completionTokens'))}"
+            f"  cache-read {human(ru.get('cacheReadTokens'))}  est USD saved {money(ru.get('estimatedUsdSaved'))}"
+        )
+        for eng, v in (comp.get("byEngine") or {}).items():
+            out.append(f"    engine {eng:9} {human(v.get('tokensSaved')):>8} saved  {v.get('avgSavingsPct')}%  ({v.get('count')} req)")
+        for prov, v in (comp.get("byProvider") or {}).items():
+            out.append(f"    provider {prov:12} {human(v.get('tokensSaved')):>8} saved  ({v.get('count')} req)")
+    else:
+        out.append(c.red("  compression analytics unavailable"))
+
+    if isinstance(hist, dict) and not hist.get("__error__"):
+        out.append("")
+        out.append(c.bold("COST / USAGE"))
+        out.append(
+            f"  OmniRoute all-time {money(hist.get('totalCost'))}"
+            f"  {human(hist.get('totalPromptTokens'))} prompt / {human(hist.get('totalCompletionTokens'))} completion"
+            f"  {hist.get('totalRequests')} req"
+        )
+        for prov in ("opencode-go", "codex"):
+            v = (hist.get("byProvider") or {}).get(prov)
+            if v:
+                out.append(
+                    f"    {prov:12} {v.get('requests')} req  cost {money(v.get('cost'))}"
+                    f"  {human(v.get('promptTokens'))} prompt / {human(v.get('completionTokens'))} completion"
+                )
+
+    logs = snap.get("logs")
+    if isinstance(logs, list) and logs:
+        out.append("")
+        out.append(c.bold("RECENT ROUTED REQUESTS") + c.dim("  (newest first)"))
+        for line in logs[:12]:
+            p = [x.strip() for x in str(line).split("|")]
+            if len(p) >= 7:
+                out.append(
+                    f"  {p[0][11:19]}  {p[1][:24]:24} {p[3][:14]:14}"
+                    f"  {human(p[4]):>7} -> {human(p[5]):>6}  {p[6]}"
+                )
+
+    return "\n".join(out)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="OmniRoute limits + token tracker")
+    ap.add_argument("--once", action="store_true", help="print one snapshot and exit")
+    ap.add_argument("--interval", type=int, default=int(os.environ.get("OMNIROUTE_INTERVAL", "60")))
+    ap.add_argument("--no-color", action="store_true")
+    ap.add_argument("--json", action="store_true", help="print raw snapshot JSON")
+    args = ap.parse_args()
+
+    headers, src = auth_headers()
+    if not headers:
+        print(
+            "omni-limits: no OmniRoute credentials found.\n"
+            "Set OMNIROUTE_MANAGEMENT_TOKEN, or OMNIROUTE_COOKIE, or log in to the\n"
+            f"dashboard at {BASE} in a local browser so the auth_token cookie exists.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.json or args.once:
+        snap = build_snapshot(headers)
+        if args.json:
+            print(json.dumps(snap, indent=2))
+            return 0
+        c = C(color_enabled(args.no_color))
+        print(render(snap, src, c))
+        return 0
+
+    c = C(color_enabled(args.no_color))
+    try:
+        while True:
+            snap = build_snapshot(headers)
+            text = render(snap, src, c)
+            if c.on:
+                print("\033[H\033[2J", end="")
+            print(text, flush=True)
+            time.sleep(max(5, args.interval))
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
