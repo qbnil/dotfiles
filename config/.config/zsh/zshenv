@@ -1,2 +1,10 @@
-# zsh reads this before .zprofile and .zshrc.
-export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
+export ZDOTDIR="$HOME/.config/zsh"
+
+# API keys and tokens. Sourced here rather than in .zprofile so that every
+# shell gets them, including the non-login shells terminal emulators start.
+[ -r "$HOME/.config/shell/secrets.sh" ] && . "$HOME/.config/shell/secrets.sh"
+
+# Prevent SSH askpass prompts in non-interactive contexts
+export GIT_TERMINAL_PROMPT=0
+export SSH_ASKPASS="/usr/bin/false"
+export SSH_ASKPASS_REQUIRE=never

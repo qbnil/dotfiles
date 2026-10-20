@@ -622,6 +622,132 @@
               }
             }
           ]
+        },
+        "codex/gpt-5.6-terra": {
+          "name": "GPT-5.6 Terra (Codex)",
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+            "reasoning": {
+              "supported": true
+            }
+          },
+          "limit": {
+            "context": 872000,
+            "output": 128000
+          },
+          "cost": [
+            {
+              "input": 2,
+              "output": 12,
+              "cache": {
+                "read": 0.2,
+                "write": 2.5
+              }
+            },
+            {
+              "tier": {
+                "type": "context",
+                "size": 272000
+              },
+              "input": 4,
+              "output": 18,
+              "cache": {
+                "read": 0.4,
+                "write": 5
+              }
+            }
+          ]
+        },
+        "codex/gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna (Codex)",
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+            "reasoning": {
+              "supported": true
+            }
+          },
+          "limit": {
+            "context": 872000,
+            "output": 128000
+          },
+          "cost": [
+            {
+              "input": 0.2,
+              "output": 1.2,
+              "cache": {
+                "read": 0.02,
+                "write": 0.25
+              }
+            },
+            {
+              "tier": {
+                "type": "context",
+                "size": 272000
+              },
+              "input": 0.4,
+              "output": 1.8,
+              "cache": {
+                "read": 0.04,
+                "write": 0.5
+              }
+            }
+          ]
+        },
+        "codex/gpt-6-luna": {
+          "name": "GPT-6 Luna (Codex)",
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+            "reasoning": {
+              "supported": true
+            }
+          },
+          "limit": {
+            "context": 872000,
+            "output": 128000
+          },
+          "cost": [
+            {
+              "input": 0.1,
+              "output": 0.5,
+              "cache": {
+                "read": 0.01,
+                "write": 0.125
+              }
+            },
+            {
+              "tier": {
+                "type": "context",
+                "size": 272000
+              },
+              "input": 0.2,
+              "output": 0.75,
+              "cache": {
+                "read": 0.02,
+                "write": 0.25
+              }
+            }
+          ]
         }
       },
       "headers": {

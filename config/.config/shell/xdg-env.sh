@@ -71,6 +71,12 @@ export LESS_TERMCAP_ue="$(printf '%b' '\[\033[0m\]')"
 # Source secrets file if it exists (API keys, tokens, etc.)
 [ -f "$XDG_CONFIG_HOME/shell/secrets.sh" ] && . "$XDG_CONFIG_HOME/shell/secrets.sh"
 
+# Prevent SSH askpass prompts in non-interactive contexts
+export GIT_TERMINAL_PROMPT=0
+export SSH_ASKPASS="/usr/bin/false"
+export SSH_ASKPASS_REQUIRE=never
+export DISPLAY=""
+
 # PATH: user-local binaries first, without duplicating entries on re-source.
 for dir in "$CARGO_HOME/bin" "$HOME/.local/bin"; do
   case ":$PATH:" in
@@ -81,3 +87,11 @@ done
 unset dir
 export PATH
 
+
+# SSH agent
+[ -z "$SSH_AUTH_SOCK" ] && [ -f /tmp/ssh-agent.env ] && . /tmp/ssh-agent.env 2>/dev/null
+[ -z "$SSH_AUTH_SOCK" ] && SSH_AUTH_SOCK=$(find /home/kent/.ssh/agent -name "agent.*" 2>/dev/null | head -1) && [ -n "$SSH_AUTH_SOCK" ] && export SSH_AUTH_SOCK
+[ -z "$SSH_AGENT_PID" ] && [ -n "$SSH_AUTH_SOCK" ] && SSH_AGENT_PID=$(basename "$SSH_AUTH_SOCK" | awk -F. '{print $NF}') 2>/dev/null && export SSH_AGENT_PID
+
+# SSH agent persistent
+[ -z "$SSH_AUTH_SOCK" ] && [ -f "$HOME/.ssh/agent-env.sh" ] && . "$HOME/.ssh/agent-env.sh" 2>/dev/null

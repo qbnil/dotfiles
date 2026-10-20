@@ -388,11 +388,13 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
 })
 
 --- Jump to the next/previous git hunk (wraps around, shows the hunk preview).
+--- `target = "all"` also navigates staged hunks; by default gitsigns only
+--- looks at unstaged changes, so a staged-only file would report "No hunks".
 --- @param dir "next"|"prev"
 local function hunk(dir)
 	local gs = require("gitsigns")
 	if gs.nav_hunk then
-		gs.nav_hunk(dir, { wrap = true })
+		gs.nav_hunk(dir, { wrap = true, target = "all" })
 	elseif dir == "next" then
 		gs.next_hunk()
 	else
@@ -442,6 +444,9 @@ return {
 		config = function()
 			require("gitsigns").setup({
 				current_line_blame = true,
+				-- Needed so staged hunks are computed at all; without it,
+				-- [h/]h reports "No hunks" on staged-only changes.
+				signs_staged_enable = true,
 			})
 		end,
 	},

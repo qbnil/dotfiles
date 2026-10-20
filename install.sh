@@ -301,6 +301,17 @@ for package in "${PACKAGES[@]}"; do
     fi
 done
 
+# Install tmux plugins via TPM if tmux is installed
+if command -v tmux &>/dev/null && [ -d "$HOME/.config/tmux/plugins/tpm" ]; then
+    print_status "Installing tmux plugins..."
+    # Ensure plugins are installed non-interactively
+    tmux start-server 2>/dev/null
+    tmux run-shell -b "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" 2>/dev/null || \
+        "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" 2>/dev/null || true
+    tmux kill-server 2>/dev/null || true
+    print_success "Tmux plugins installation attempted"
+fi
+
 # These are conventional compatibility entrypoints that some programs require.
 # Their real contents live under ~/.config.
 link_home() {

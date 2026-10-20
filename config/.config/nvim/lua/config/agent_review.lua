@@ -2,7 +2,10 @@
 -- list, and commit/push when you're happy.
 --
 --   <leader>gs  searchable picker of ALL changes, including deleted files
---               (type to fuzzy filter, status words match too: "deleted foo")
+--               (type to fuzzy filter, status words match too: "deleted foo"
+--               or "staged"). Each row starts with a stage dot: ● = fully
+--               staged, ◐ = staged with further unstaged edits, ○ = nothing
+--               staged yet.
 --               <Tab> select, <CR> open (deleted -> HEAD content in a split),
 --               <C-q> send selected (or all listed) to quickfix, <Esc> close
 --   <leader>gq  open every changed file in the editable quickfix list
@@ -181,6 +184,22 @@ local function churn(added, deleted)
 	return string.format("+%d -%d", added, deleted)
 end
 
+--- Stage indicator glyph for the picker: a filled dot when the whole change is
+--- staged, a half dot when it is staged with further unstaged edits on top,
+--- and a hollow dot when nothing has been staged yet. All glyphs are 3 bytes
+--- so byte offsets stay uniform across rows.
+--- @param e table
+--- @return string glyph, string hl
+local function stage_mark(e)
+	if e.staged and e.unstaged then
+		return "◐", "AgentReviewStagedPartial"
+	elseif e.staged then
+		return "●", "AgentReviewStaged"
+	else
+		return "○", "AgentReviewUnstaged"
+	end
+end
+
 --- Colour-coded status words for the quickfix rows.
 local LABEL_HL = {
 	added = "AgentReviewAdded",
@@ -222,6 +241,9 @@ local function define_highlights()
 	link_hl("AgentReviewAdd", { "DiagnosticOk", "DiffAdd", "String" })
 	link_hl("AgentReviewDel", { "DiagnosticError", "DiffDelete", "Error" })
 	link_hl("AgentReviewUnpushed", { "Special", "DiagnosticWarn" })
+	link_hl("AgentReviewStaged", { "DiagnosticOk", "DiffAdd", "String" })
+	link_hl("AgentReviewStagedPartial", { "DiagnosticInfo", "Identifier", "Special" })
+	link_hl("AgentReviewUnstaged", { "NonText", "Comment", "CursorLineNr" })
 end
 
 --- Paint the status word and the +/- counts in a quickfix row. The row text
@@ -454,6 +476,12 @@ function M.changed_files()
 	local stats = diffstat(root, entries)
 	for _, e in ipairs(entries) do
 		e.label = status_word(e.xy)
+		-- Porcelain XY: X (index) = staged, Y (worktree) = unstaged.
+		-- Untracked "??" is worktree-only, never staged.
+		local x = e.xy:sub(1, 1)
+		local y = e.xy:sub(2, 2)
+		e.staged = (x ~= " " and x ~= "?")
+		e.unstaged = (y ~= " " and y ~= "?") or e.xy == "??"
 		local s = stats[e.path] or { added = 0, deleted = 0 }
 		e.added = s.added
 		e.deleted = s.deleted
@@ -913,7 +941,9 @@ function M.changes_picker()
 		return
 	end
 	for _, e in ipairs(entries) do
-		e.search = e.label .. " " .. e.path
+		-- Make stage state searchable: typing "staged" or "unstaged" filters rows.
+		local stage = e.staged and (e.unstaged and "staged partial" or "staged") or "unstaged"
+		e.search = e.label .. " " .. stage .. " " .. e.path
 	end
 
 	local ui_w, ui_h = vim.o.columns, vim.o.lines
@@ -962,7 +992,14 @@ function M.changes_picker()
 
 		local lines = {}
 		for i, e in ipairs(filtered) do
-			local head = string.format("%s %-10s %s  ", selected[e.path] and "*" or " ", e.label, e.path)
+			local glyph = stage_mark(e)
+			local head = string.format(
+				"%s %s %-10s %s  ",
+				selected[e.path] and "*" or " ",
+				glyph,
+				e.label,
+				e.path
+			)
 			lines[i] = head .. churn(e.added, e.deleted)
 		end
 		if #lines == 0 then
@@ -976,11 +1013,19 @@ function M.changes_picker()
 		vim.api.nvim_buf_clear_namespace(list_buf, PICKER_NS, 0, -1)
 		for i, e in ipairs(filtered) do
 			local line = lines[i]
-			vim.api.nvim_buf_set_extmark(list_buf, PICKER_NS, i - 1, 2, {
-				hl_group = LABEL_HL[e.label] or "AgentReviewChanged",
-				end_col = 2 + #e.label,
+			local glyph, glyph_hl = stage_mark(e)
+			-- Layout: [sel 1][space 1][glyph #glyph][space 1][label 10][space 1][path]  [counts]
+			local gcol = 2
+			vim.api.nvim_buf_set_extmark(list_buf, PICKER_NS, i - 1, gcol, {
+				hl_group = glyph_hl,
+				end_col = gcol + #glyph,
 			})
-			local init = 2 + 10 + 1 + #e.path + 2
+			local label_col = gcol + #glyph + 1
+			vim.api.nvim_buf_set_extmark(list_buf, PICKER_NS, i - 1, label_col, {
+				hl_group = LABEL_HL[e.label] or "AgentReviewChanged",
+				end_col = label_col + #e.label,
+			})
+			local init = label_col + 10 + 1 + #e.path + 2
 			while true do
 				local s, f = line:find("[+-]%d+", init)
 				if not s then
