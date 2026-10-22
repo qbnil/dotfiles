@@ -599,6 +599,40 @@ EOZRAM
 fi
 
 # ----------------------------------------------------------------------------
+# Docker (engine + Compose v2 plugin + buildx)
+# ----------------------------------------------------------------------------
+# Rootful Docker, the Arch default: docker.service listens on
+# /var/run/docker.sock and the CLI talks to it. The packages are also listed in
+# packages-native.txt; installing them again here is a no-op with --needed but
+# keeps Compose available even if a list entry failed.
+print_status "Configuring Docker..."
+pacman_install docker docker-compose docker-buildx
+
+# shell/xdg-env.sh sets DOCKER_CONFIG=~/.config/docker, so Docker must not use
+# ~/.docker. Docker writes config.json, contexts/, buildx/ and cli-plugins/ into
+# that directory at runtime, so create it as a real directory - Stow only links
+# individual files below ~/.config and would never own this one.
+mkdir -p "${DOCKER_CONFIG:-$HOME/.config/docker}"
+
+# Membership in the docker group is what allows the CLI to open the socket
+# without sudo. It only takes effect in new sessions.
+if ! id -nG "$(id -un)" | grep -qw docker; then
+    sudo usermod -aG docker "$(id -un)"
+    print_warning "Added $(id -un) to the 'docker' group - log out and back in before using docker without sudo"
+fi
+
+sudo systemctl enable --now docker.service 2>/dev/null \
+    || print_warning "Could not enable docker.service now"
+
+# CLI-only check: it does not contact the daemon, so it also passes on the first
+# run, before the group change has been applied to a login session.
+if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    print_success "Docker $(docker --version | awk '{print $3}' | tr -d ,) with Compose $(docker compose version --short 2>/dev/null || echo v2)"
+else
+    print_warning "docker compose plugin missing - install it with: sudo pacman -S docker docker-compose docker-buildx"
+fi
+
+# ----------------------------------------------------------------------------
 # Services
 # ----------------------------------------------------------------------------
 print_status "Enabling services..."

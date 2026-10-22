@@ -67,12 +67,13 @@ The installer:
 1. Checks that the system is Arch Linux and that the user can use `sudo`.
 2. Detects virtual machines and avoids hardware-specific NVIDIA setup there.
 3. Installs the required native/AUR packages.
-4. Creates an automatic timestamped backup of existing configuration.
-5. Stows `config` and `local` into `$HOME`.
-6. Creates lowercase user directories from the paths defined by `xdg-env.sh`.
-7. Creates only the required compatibility links in `$HOME`.
-8. Builds the programs in `src/` into `~/.local/bin` (with the setuid `slock` installed to `/usr/local/bin`).
-9. Installs the repository's system-level files under `/etc` where applicable.
+4. Installs Docker (engine, Compose v2 plugin, buildx), adds the user to the `docker` group and enables `docker.service`.
+5. Creates an automatic timestamped backup of existing configuration.
+6. Stows `config` and `local` into `$HOME`.
+7. Creates lowercase user directories from the paths defined by `xdg-env.sh`.
+8. Creates only the required compatibility links in `$HOME`.
+9. Builds the programs in `src/` into `~/.local/bin` (with the setuid `slock` installed to `/usr/local/bin`).
+10. Installs the repository's system-level files under `/etc` where applicable.
 
 ### Preview Stow changes
 
@@ -279,6 +280,84 @@ Check the resulting Stow plan at any time with:
 ## Packages
 
 Package lists are kept in `bootstrap/packages-native.txt` and `bootstrap/packages-aur.txt`.
+
+## Docker
+
+Docker is installed by `install.sh` as **rootful** Docker, the Arch default: `docker.service` listens on `/var/run/docker.sock` and the `docker` CLI talks to that socket.
+
+| Package | Provides |
+|---|---|
+| `docker` | engine (`dockerd`), `docker` CLI and the systemd unit |
+| `docker-compose` | the Compose **v2 plugin**, which is why the command is `docker compose` |
+| `docker-buildx` | BuildKit builder used by `docker compose build` |
+
+All three are declared in `bootstrap/packages-native.txt`. There is no separate `docker-compose` script to install: the standalone v1 binary is obsolete and the plugin (`docker compose`, space) is the supported interface.
+
+What the installer does:
+
+1. Enables and starts `docker.service` (enabled at boot).
+2. Adds the user to the `docker` group, so the CLI can open the socket without `sudo`.
+3. Creates `$DOCKER_CONFIG` (`~/.config/docker`) as a real directory. `shell/xdg-env.sh` sets `DOCKER_CONFIG` so Docker does not create `~/.docker`; the CLI writes `config.json`, `contexts/`, `buildx/` and `cli-plugins/` there at runtime. This directory must stay out of Stow, because it is runtime state rather than tracked configuration.
+
+**Group membership only applies to new sessions.** After the first install, log out and back in, or run `newgrp docker` in the current shell. Until then every Docker command needs `sudo`. A `permission denied while trying to connect to the Docker daemon socket` error always means exactly that.
+
+Verify the install:
+
+```bash
+docker --version
+docker compose version
+docker run --rm hello-world
+```
+
+### Compose projects
+
+Put a `compose.yaml` (or `docker-compose.yml`) in the project directory:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: example
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+```
+
+Everyday commands, run from the directory that contains the file:
+
+| Task | Command |
+|---|---|
+| Start in the background | `docker compose up -d` |
+| Build images, then start | `docker compose up -d --build` |
+| Status of the project | `docker compose ps` |
+| Follow logs | `docker compose logs -f --tail=100` |
+| Logs of one service | `docker compose logs -f web` |
+| Shell inside a service | `docker compose exec web sh` |
+| Restart one service | `docker compose restart web` |
+| Stop and remove containers | `docker compose down` |
+| Also delete named volumes | `docker compose down -v` |
+| Update images | `docker compose pull && docker compose up -d` |
+| Validate and expand the file | `docker compose config` |
+| List running projects | `docker compose ls` |
+
+Notes:
+
+- `docker compose down -v` destroys the named volumes, which means the database contents in the example above. Use it only when that is intended.
+- The project name defaults to the directory name. Override it with `-p`, and select files with `-f`; overlays combine: `docker compose -f compose.yaml -f compose.prod.yaml up -d`.
+- Daemon settings go in `/etc/docker/daemon.json`; apply them with `sudo systemctl restart docker`.
+- `docker system df` shows the space used by images, containers and volumes; `docker system prune` removes unused data.
+- Rootless Docker is available (`dockerd-rootless-setuptool.sh install`) but is not set up here; the `docker` group approach above is what this repository assumes.
 
 ## NVIDIA suspend fix
 

@@ -11,6 +11,9 @@ clinfo
 cmatrix
 cuda
 dnsmasq
+docker
+docker-buildx
+docker-compose
 efibootmgr
 eza
 fastfetch
