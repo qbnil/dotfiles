@@ -6,6 +6,9 @@ vim.o.swapfile = false
 vim.o.backup = false
 vim.o.autoread = true
 vim.o.undofile = true
+if vim.env.DISPLAY or vim.env.WAYLAND_DISPLAY then
+	vim.o.clipboard = "unnamedplus"
+end
 vim.o.number = true
 vim.o.relativenumber = true
 
