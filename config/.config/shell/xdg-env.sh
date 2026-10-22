@@ -75,7 +75,10 @@ export LESS_TERMCAP_ue="$(printf '%b' '\[\033[0m\]')"
 export GIT_TERMINAL_PROMPT=0
 export SSH_ASKPASS="/usr/bin/false"
 export SSH_ASKPASS_REQUIRE=never
-export DISPLAY=""
+# Clear DISPLAY only for remote sessions so local X clipboard/GUI apps work
+if [ -n "${SSH_CONNECTION:-}${SSH_TTY:-}" ]; then
+  export DISPLAY=""
+fi
 
 # PATH: user-local binaries first, without duplicating entries on re-source.
 for dir in "$CARGO_HOME/bin" "$HOME/.local/bin"; do
