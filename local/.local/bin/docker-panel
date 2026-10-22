@@ -1,0 +1,6 @@
+#!/bin/sh
+# docker-panel - dmenu entry that opens vxpanel's Docker admin page.
+# The page itself lives in vxpanel (Engine status, containers, disk usage,
+# prune actions); this wrapper just deep-links to it.
+BIN=$(command -v vxpanel) || BIN="$HOME/.local/bin/vxpanel"
+exec "$BIN" --page docker "$@"

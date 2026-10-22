@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """vxpanel - flat, lightweight floating control panel for dwm-style X11 setups (GTK3 + pywal).
-Usage: vxpanel [--page display|colors|theme|audio|input|notify|system]
+Usage: vxpanel [--page display|colors|theme|audio|input|notify|system|docker]
 Changes that X forgets on restart are saved to ~/.config/vxpanel/startup.sh - run it from your autostart.
 
 Session start never runs this script: startup.sh carries a plain `redshift -O`
@@ -93,7 +93,7 @@ def persist_nightlight():
 # needs them, and at session start they used to cost ~0.3s of visible
 # bright-neutral screen before the night light landed.
 import ctypes, ctypes.util
-import re, shlex, configparser, threading
+import re, shlex, configparser, threading, time
 from string import Template
 import gi
 gi.require_version("Gtk", "3.0")
@@ -186,6 +186,33 @@ flowboxchild { padding: 4px; border: 1px solid $bg; }
 flowboxchild:hover { border-color: $ac; }
 .card flowboxchild { border-color: $s1; }
 .card flowboxchild:hover { border-color: $ac; }
+.card .dim, .dlg .dim { color: $dim; }
+.card .chip { background-color: $s1; border: 1px solid $s3; color: $dim; font-size: 10px; letter-spacing: 1px; padding: 2px 7px; }
+.card .chip.on { color: $ok; border-color: $ok; }
+.card .chip.off { color: $bad; border-color: $bad; }
+.card .chip.hot { color: $ac; border-color: $ac; }
+.card .chip.warn { color: $warn; border-color: $warn; }
+.card .chip.run { color: $ok; border-color: $ok; }
+.card .chip.pause { color: $warn; border-color: $warn; }
+.card .chip.stop { color: $dim; }
+.card .chip.dead { color: $bad; border-color: $bad; }
+.card .st-run { color: $ok; }
+.card .st-pause { color: $warn; }
+.card .st-stop { color: $dim; }
+.card .st-dead { color: $bad; }
+.ctrlist, .ctrlist row { background-color: transparent; }
+.ctr { border-top: 1px solid $s2; padding: 8px 2px; }
+.ctr:hover { background-color: $s2; }
+.ctr label { background-color: transparent; }
+.ctr .name { font-weight: bold; }
+.ctr button label { background-color: transparent; }
+.card button label { background-color: transparent; }
+button.sm { padding: 2px 9px; min-height: 0; }
+button.sm label { font-size: 11px; }
+button.danger, button.danger label { background-color: $bad; color: $onbad; }
+button.danger { border-color: $bad; }
+button.danger:hover, button.danger:hover label { background-color: $badh; color: $onbad; }
+.dlg checkbutton, .dlg checkbutton label { color: $fg; }
 """)
 PROVIDER = Gtk.CssProvider()
 
@@ -194,7 +221,10 @@ def apply_css():
     ac = c[4]
     PROVIDER.load_from_data(CSS.substitute(
         bg=bgc, fg=fg, ac=ac, onac="#000000" if lum(ac) > 0.5 else "#ffffff",
-        s1=mix(bgc, fg, 0.06), s2=mix(bgc, fg, 0.13), s3=mix(bgc, fg, 0.24)).encode())
+        s1=mix(bgc, fg, 0.06), s2=mix(bgc, fg, 0.13), s3=mix(bgc, fg, 0.24),
+        dim=mix(fg, bgc, 0.42), ok=c[2], warn=c[3], bad=c[1], purple=c[5],
+        onbad="#000000" if lum(c[1]) > 0.55 else "#ffffff",
+        badh=mix(c[1], "#ffffff", 0.16)).encode())
     for w in REDRAW: w.queue_draw()
 
 # ---------------------------------------------------------------- widget builders
@@ -922,6 +952,508 @@ def system():
     c = card(b, "Persistence")
     c.pack_start(Gtk.Label(label="Settings X forgets on restart (monitors, keyboard, pointer, compositor, night light…) are saved to\n%s\nand applied automatically at login by xinitrc." % STARTUP, xalign=0), False, False, 0)
     btnrow(c, btn("Open startup.sh", lambda: bg(["xdg-open", STARTUP])))
+    return b
+
+# ---------------------------------------------------------------- Docker
+# Live container list + disk usage + prune actions. Docker is polled only while
+# this page is on screen, and rows are rebuilt only when something changed, so
+# idle refreshes do not reset the scroll position.
+DOCKER_TIMER = {"id": 0}
+
+def _dc(cmd, timeout=60):
+    """(rc, stdout, stderr) - never raises, so the panel cannot die on docker."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    except FileNotFoundError:
+        return 127, "", "docker is not installed"
+    except subprocess.TimeoutExpired:
+        return 124, "", "docker timed out"
+    except Exception as e:
+        return 1, "", str(e)
+
+_SIZE_RE = re.compile(r"([\d.]+)\s*([kKmMgGtT]?i?[bB])")
+_SIZE_MULT = {"b": 1, "kb": 1e3, "mb": 1e6, "gb": 1e9, "tb": 1e12,
+              "kib": 1024, "mib": 1024 ** 2, "gib": 1024 ** 3, "tib": 1024 ** 4}
+
+def size_bytes(s):
+    if not s: return 0
+    m = _SIZE_RE.search(str(s).split("(")[0])
+    if not m: return 0
+    try: return int(float(m.group(1)) * _SIZE_MULT[m.group(2).lower()])
+    except (ValueError, KeyError): return 0
+
+def size_human(n):
+    if n <= 0: return "0 B"
+    for unit, div in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+        if n >= div: return "%.2f %s" % (n / div, unit)
+    return "%d B" % n
+
+def _docker_state(full=True):
+    """(containers, system df rows, info, error) - safe for a worker thread.
+    df is None when full=False, meaning 'keep the previous storage numbers'."""
+    rc, out, err = _dc(["docker", "info", "--format", "{{json .}}"], 20)
+    if rc != 0:
+        msg = err or out or "docker daemon is not reachable"
+        low = msg.lower()
+        if "permission denied" in low:
+            msg = "Permission denied on /var/run/docker.sock — add $USER to the docker group."
+        elif "failed to connect" in low or "cannot connect" in low or "no such file" in low:
+            msg = "Docker daemon is not reachable.\nStart it with: sudo systemctl start docker"
+        else:
+            msg = msg.splitlines()[0][:300]
+        return [], [], {}, msg
+    try: info = json.loads(out)
+    except Exception: info = {}
+
+    rc, out, err = _dc(["docker", "ps", "-a", "--format", "{{json .}}"], 30)
+    if rc != 0:
+        return [], [], info, err or "could not list containers"
+    containers = []
+    for line in out.splitlines():
+        if line.strip():
+            try: containers.append(json.loads(line))
+            except Exception: pass
+
+    rc, out, _ = _dc(["docker", "system", "df", "--format", "{{json .}}"], 60) if full else (0, "", "")
+    df = [] if full else None
+    if rc == 0 and full:
+        for line in out.splitlines():
+            if line.strip():
+                try: df.append(json.loads(line))
+                except Exception: pass
+
+    def order(c):
+        state = (c.get("State") or "").lower()
+        return ({"running": 0, "restarting": 1, "paused": 2, "created": 3, "exited": 4, "dead": 5}
+                .get(state, 6), (c.get("Names") or "").lower())
+    containers.sort(key=order)
+    return containers, df, info, None
+
+
+@page("docker", "Docker")
+def docker():
+    b = new_page("Docker")
+    bgc, fg, pal = load_colors()
+    accent, ok, warn, purple = pal[4], pal[2], pal[3], pal[5]
+    st = {"containers": [], "df": [], "info": {}, "error": None, "filter": "all",
+          "sig": None, "df_sig": None, "df_at": 0, "busy": False, "fetching": False,
+          "storage": [], "dead": False}
+
+    def alive(): return not st["dead"] and b.get_parent() is not None
+
+    def chip(text, kind=None):
+        w = cls(Gtk.Label(label=text, xalign=0), "chip")
+        if kind: cls(w, kind)
+        w.set_valign(Gtk.Align.CENTER)
+        return w
+
+    def set_kind(w, kind):
+        ctx = w.get_style_context()
+        for k in ("on", "off", "hot", "warn"):
+            ctx.remove_class(k)
+        if kind: ctx.add_class(kind)
+
+    def term(title, argv):
+        if not have("st"): return status("✗ st is not installed")
+        bg(["st", "-c", "vxpanel-term", "-t", title, "-e"] + argv)
+
+    # ---------------- engine overview
+    c = card(b, "Engine")
+    chips = Gtk.Box(spacing=7)
+    st["engine"] = chip("CONNECTING")
+    st["version"] = chip("engine —")
+    st["driver"] = chip("—")
+    st["host"] = chip("—")
+    for w in (st["engine"], st["version"], st["driver"], st["host"]):
+        chips.pack_start(w, False, False, 0)
+    c.pack_start(chips, False, False, 0)
+    line = Gtk.Box(spacing=10)
+    st["counts"] = cls(Gtk.Label(label="—", xalign=0), "dim")
+    line.pack_start(st["counts"], False, False, 0)
+    line.pack_start(Gtk.Box(), True, True, 0)
+    st["updated"] = cls(Gtk.Label(label="waiting…", xalign=0), "dim")
+    line.pack_end(st["updated"], False, False, 0)
+    ref = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
+    cls(ref, "sm"); ref.set_tooltip_text("Refresh now")
+    ref.connect("clicked", lambda _w: refresh(True))
+    line.pack_end(ref, False, False, 0)
+    c.pack_start(line, False, False, 0)
+
+    # ---------------- containers
+    c = cls(Gtk.Box(orientation=VERT, spacing=8), "card")
+    b.pack_start(c, False, False, 0)
+    head = Gtk.Box(spacing=10)
+    head.pack_start(cls(Gtk.Label(label="CONTAINERS", xalign=0), "h"), False, False, 0)
+    st["shown"] = cls(Gtk.Label(label="—", xalign=0), "dim")
+    head.pack_start(st["shown"], False, False, 0)
+    head.pack_start(Gtk.Box(), True, True, 0)
+    fbox = Gtk.Box(spacing=6)
+    fbtns = {}
+    for key, text in (("all", "All"), ("running", "Running"), ("stopped", "Stopped")):
+        fb = Gtk.ToggleButton(label=text)
+        cls(fb, "sm")
+        fb.set_active(key == "all")
+        fb.connect("clicked", lambda _w, k=key: set_filter(k))
+        fbtns[key] = fb
+        fbox.pack_start(fb, False, False, 0)
+    head.pack_end(fbox, False, False, 0)
+    c.pack_start(head, False, False, 0)
+
+    lst = Gtk.ListBox()
+    lst.set_selection_mode(Gtk.SelectionMode.NONE)
+    cls(lst, "ctrlist")
+    c.pack_start(lst, False, False, 0)
+
+    # ---------------- storage
+    c = cls(Gtk.Box(orientation=VERT, spacing=9), "card")
+    b.pack_start(c, False, False, 0)
+    head = Gtk.Box(spacing=10)
+    head.pack_start(cls(Gtk.Label(label="STORAGE", xalign=0), "h"), False, False, 0)
+    head.pack_start(Gtk.Box(), True, True, 0)
+    st["total"] = cls(Gtk.Label(label="total —", xalign=0), "dim")
+    st["total"].set_tooltip_text("Images + containers + volumes + build cache")
+    head.pack_start(st["total"], False, False, 0)
+    st["reclaim"] = chip("reclaimable —", "warn")
+    head.pack_end(st["reclaim"], False, False, 0)
+    c.pack_start(head, False, False, 0)
+
+    bar = Gtk.DrawingArea()
+    bar.set_size_request(-1, 8)
+    bar.connect("draw", lambda w, cr: draw_bar(w, cr))
+    c.pack_start(bar, False, False, 0)
+
+    legend = Gtk.Box(spacing=18)
+    c.pack_start(legend, False, False, 0)
+
+    acts = Gtk.Box(spacing=8)
+    for text, tip, fn in (
+        ("Prune build cache", "Delete build cache not used by any image", lambda: prune_cache()),
+        ("Prune unused images", "Delete images not used by any container", lambda: prune_images()),
+        ("Remove stopped", "Delete all stopped containers", lambda: remove_stopped()),
+    ):
+        x = btn(text, fn); cls(x, "sm"); x.set_tooltip_text(tip)
+        acts.pack_start(x, False, False, 0)
+    acts.pack_start(Gtk.Box(), True, True, 0)
+    full = btn("Full cleanup…", lambda: full_cleanup())
+    cls(full, "danger")
+    full.set_tooltip_text("Remove all unused containers, images, networks, build cache and optionally volumes")
+    acts.pack_end(full, False, False, 0)
+    c.pack_start(acts, False, False, 0)
+
+    # ---------------- rendering
+    def draw_bar(w, cr):
+        width, height = w.get_allocated_width(), w.get_allocated_height()
+        cr.set_source_rgb(*hex2rgb(mix(bgc, fg, 0.13)))
+        cr.rectangle(0, 0, width, height); cr.fill()
+        total = sum(n for _, n, _ in st["storage"])
+        if total <= 0: return False
+        x = 0.0
+        for _name, n, color in st["storage"]:
+            seg = width * n / total
+            cr.set_source_rgb(*hex2rgb(color))
+            cr.rectangle(x + 0.5, 0, max(seg - 1, 1), height); cr.fill()
+            x += seg
+        return False
+
+    def render_storage(df):
+        sig = tuple((r.get("Type"), r.get("Size"), r.get("Reclaimable"), r.get("TotalCount")) for r in df)
+        if sig == st["df_sig"]: return
+        st["df_sig"] = sig
+        for ch in legend.get_children(): legend.remove(ch)
+        rows = {r.get("Type", ""): r for r in df}
+        specs = (("Images", "Images", accent), ("Containers", "Containers", ok),
+                 ("Local Volumes", "Volumes", purple), ("Build Cache", "Build cache", warn))
+        st["storage"] = []
+        total = reclaim = 0
+        for key, name, color in specs:
+            r = rows.get(key)
+            size = size_bytes(r.get("Size")) if r else 0
+            total += size
+            reclaim += size_bytes(r.get("Reclaimable")) if r else 0
+            count = int(r.get("TotalCount") or 0) if r else 0
+            if size > 0: st["storage"].append((name, size, color))
+            item = Gtk.Box(spacing=6)
+            dot = Gtk.Label()
+            dot.set_markup('<span foreground="%s">■</span>' % color)
+            item.pack_start(dot, False, False, 0)
+            item.pack_start(cls(Gtk.Label(label=name, xalign=0), "dim"), False, False, 0)
+            item.pack_start(cls(Gtk.Label(label=size_human(size) + ("  (%d)" % count if count else ""), xalign=0), "dim"), False, False, 0)
+            legend.pack_start(item, False, False, 0)
+        st["total"].set_text("total " + size_human(total))
+        st["reclaim"].set_text("reclaimable " + size_human(reclaim))
+        legend.show_all()
+        bar.queue_draw()
+
+    def row_for(cobj):
+        cid = cobj.get("ID") or ""
+        name = cobj.get("Names") or cid[:12]
+        state = (cobj.get("State") or "unknown").lower()
+        status_txt = cobj.get("Status") or ""
+        image = cobj.get("Image") or ""
+        ports = cobj.get("Ports") or ""
+        running = state in ("running", "restarting", "paused")
+
+        r = Gtk.ListBoxRow()
+        cls(r, "ctr")
+        h = Gtk.Box(spacing=12)
+        dot = Gtk.Label(label="●")
+        cls(dot, {"running": "st-run", "paused": "st-pause", "restarting": "st-pause",
+                  "dead": "st-dead"}.get(state, "st-stop"))
+        dot.set_valign(Gtk.Align.CENTER)
+        h.pack_start(dot, False, False, 0)
+
+        text = Gtk.Box(orientation=VERT, spacing=2)
+        top = Gtk.Box(spacing=8)
+        nm = cls(Gtk.Label(label=name, xalign=0), "name")
+        nm.set_ellipsize(Pango.EllipsizeMode.END)
+        top.pack_start(nm, False, False, 0)
+        pill = chip(state.upper(), {"running": "run", "paused": "pause",
+                                    "dead": "dead"}.get(state, "stop"))
+        top.pack_start(pill, False, False, 0)
+        text.pack_start(top, False, False, 0)
+        sub = "%s  ·  %s" % (image, status_txt) if status_txt else image
+        s = cls(Gtk.Label(label=sub, xalign=0), "dim")
+        s.set_ellipsize(Pango.EllipsizeMode.END); s.set_max_width_chars(56)
+        text.pack_start(s, False, False, 0)
+        if ports:
+            p = cls(Gtk.Label(label=ports, xalign=0), "dim")
+            p.set_ellipsize(Pango.EllipsizeMode.END); p.set_max_width_chars(56)
+            text.pack_start(p, False, False, 0)
+        h.pack_start(text, True, True, 0)
+
+        power = btn("Stop" if running else "Start", lambda: power_toggle(cid, running))
+        cls(power, "sm"); power.set_tooltip_text("Stop container" if running else "Start container")
+        power.set_valign(Gtk.Align.CENTER)
+        rs = btn("Restart", lambda: job(["docker", "restart", cid], "Restarting %s…" % name, "Restarted " + name))
+        cls(rs, "sm"); rs.set_sensitive(running); rs.set_tooltip_text("Restart container")
+        rs.set_valign(Gtk.Align.CENTER)
+
+        m = Gtk.MenuButton()
+        m.set_image(Gtk.Image.new_from_icon_name("view-more-symbolic", Gtk.IconSize.BUTTON))
+        cls(m, "sm"); m.set_tooltip_text("More actions")
+        m.set_valign(Gtk.Align.CENTER)
+        m.set_size_request(34, -1)
+        pop = Gtk.Popover()
+        pbox = Gtk.Box(orientation=VERT, spacing=2); pbox.set_border_width(4)
+        for text_, fn, danger in (
+            ("Logs", lambda: (term("logs: " + name, ["docker", "logs", "--tail", "300", "-f", cid]),
+                              status("Following logs for " + name)), False),
+            ("Shell", lambda: (term("shell: " + name, ["docker", "exec", "-it", cid, "sh", "-c",
+                              "command -v bash >/dev/null 2>&1 && exec bash || exec sh"]),
+                              status("Shell opened in " + name)), False),
+            ("Copy ID", lambda: copy(cid), False),
+            ("Remove…", lambda: remove_container(cid, name, running), True),
+        ):
+            x = Gtk.Button.new_with_label(text_)
+            x.set_relief(Gtk.ReliefStyle.NONE)
+            x.set_size_request(150, -1)
+            x.connect("clicked", lambda _w, f=fn: (pop.popdown(), f()))
+            if danger: cls(x, "danger")
+            pbox.pack_start(x, False, False, 0)
+        pop.add(pbox); m.set_popover(pop)
+        pbox.show_all()
+
+        h.pack_end(power, False, False, 0)
+        h.pack_end(rs, False, False, 0)
+        h.pack_end(m, False, False, 0)
+        r.add(h)
+        return r
+
+    def render_rows(force=False):
+        if not alive(): return
+        cs = st["containers"]
+        if st["filter"] == "running":
+            cs = [c for c in cs if (c.get("State") or "").lower() in ("running", "restarting", "paused")]
+        elif st["filter"] == "stopped":
+            cs = [c for c in cs if (c.get("State") or "").lower() not in ("running", "restarting", "paused")]
+        sig = (st["filter"], st["error"],
+               tuple((x.get("ID"), x.get("State"), x.get("Status"), x.get("Ports")) for x in cs))
+        if not force and sig == st["sig"]: return
+        st["sig"] = sig
+        for ch in lst.get_children(): lst.remove(ch)
+        if st["error"]:
+            box = Gtk.Box(orientation=VERT, spacing=6)
+            box.set_border_width(8)
+            e = cls(Gtk.Label(label=st["error"], xalign=0), "st-dead")
+            e.set_line_wrap(True)
+            box.pack_start(e, False, False, 0)
+            box.pack_start(cls(Gtk.Label(label="Fix docker access, then press ⟳.", xalign=0), "dim"), False, False, 0)
+            lst.add(box)
+        elif not cs:
+            empty = Gtk.Label(label="No containers here.", xalign=0)
+            cls(empty, "dim")
+            empty.set_margin_start(8); empty.set_margin_end(8)
+            empty.set_margin_top(8); empty.set_margin_bottom(8)
+            lst.add(empty)
+        else:
+            for cobj in cs: lst.add(row_for(cobj))
+        lst.show_all()
+        running = sum(1 for x in st["containers"] if (x.get("State") or "").lower() == "running")
+        st["shown"].set_text("%d shown · %d running" % (len(cs), running))
+
+    def apply(state, force=False):
+        if not alive(): return False
+        containers, df, info, error = state
+        st.update(containers=containers, info=info, error=error, fetching=False)
+        if df is not None:
+            st["df"] = df
+            st["df_at"] = time.time()
+        st["updated"].set_text("updated " + time.strftime("%H:%M:%S"))
+        if error:
+            st["engine"].set_text("OFFLINE"); set_kind(st["engine"], "off")
+            st["version"].set_text("engine —"); st["driver"].set_text("—"); st["host"].set_text("—")
+            st["counts"].set_text("docker is not reachable")
+        else:
+            st["engine"].set_text("ONLINE"); set_kind(st["engine"], "on")
+            st["version"].set_text("v" + (info.get("ServerVersion") or "?"))
+            st["driver"].set_text(info.get("Driver") or "?")
+            if info.get("DockerRootDir"):
+                st["engine"].set_tooltip_text("Docker root: " + info["DockerRootDir"])
+            if info.get("APIVersion"):
+                st["version"].set_tooltip_text("API " + info["APIVersion"])
+            host = info.get("OperatingSystem") or "linux"
+            if info.get("NCPU"): host += " · %d CPU" % info["NCPU"]
+            if info.get("MemTotal"): host += " · %.1f GiB" % (info["MemTotal"] / 1024 ** 3)
+            st["host"].set_text(host)
+            run = sum(1 for x in containers if (x.get("State") or "").lower() == "running")
+            paused = sum(1 for x in containers if (x.get("State") or "").lower() == "paused")
+            stopped = sum(1 for x in containers if (x.get("State") or "").lower() in ("exited", "created", "dead"))
+            parts = ["%d running" % run]
+            if paused: parts.append("%d paused" % paused)
+            parts.append("%d stopped" % stopped)
+            parts.append("%d images" % (info.get("Images") or 0))
+            st["counts"].set_text(" · ".join(parts))
+        render_storage(st["df"])
+        render_rows(force)
+        return False
+
+    def refresh(force=False):
+        if not alive() or st["fetching"] or st["busy"]: return
+        st["fetching"] = True
+        # `docker system df` walks the whole store, so only pay for it every
+        # 30s (and after any action). Containers are polled every 5s.
+        full = force or not st["df"] or time.time() - st["df_at"] > 30
+        def work():
+            data = _docker_state(full)
+            GLib.idle_add(apply, data, force)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def set_filter(key):
+        st["filter"] = key
+        for k, w in fbtns.items(): w.set_active(k == key)
+        render_rows(force=True)
+
+    def job(cmd, busy, okmsg):
+        if st["busy"]: return
+        st["busy"] = True; status(busy)
+        def work():
+            rc, out, err = _dc(cmd, 900)
+            def fin():
+                st["busy"] = False
+                if rc != 0:
+                    status("✗ " + ((err or out or "failed").splitlines() or ["failed"])[0])
+                else:
+                    status("✓ " + okmsg)
+                refresh(force=True)
+                return False
+            GLib.idle_add(fin)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def power_toggle(cid, running):
+        job(["docker", "stop", cid] if running else ["docker", "start", cid],
+            "Stopping container…" if running else "Starting container…",
+            "Container stopped" if running else "Container started")
+
+    def remove_container(cid, name, running):
+        extra = " It is running and will be stopped first." if running else ""
+        if not confirm('Remove container "%s" permanently?%s' % (name, extra)): return
+        job(["docker", "rm", "-f", cid], "Removing %s…" % name, "Removed " + name)
+
+    def prune_cache():
+        if confirm("Delete the whole build cache? Images and containers are not touched."):
+            job(["docker", "builder", "prune", "-a", "-f"], "Pruning build cache…", "Build cache pruned")
+
+    def prune_images():
+        if confirm("Delete every image not used by a container? They must be pulled again later."):
+            job(["docker", "image", "prune", "-a", "-f"], "Pruning unused images…", "Unused images pruned")
+
+    def remove_stopped():
+        if confirm("Remove all stopped containers? Their writable layers and logs are deleted."):
+            job(["docker", "container", "prune", "-f"], "Removing stopped containers…", "Stopped containers removed")
+
+    def full_cleanup():
+        df = st["df"]
+        if not df: return status("✗ docker is offline - nothing to clean")
+        reclaim = sum(size_bytes(r.get("Reclaimable")) for r in df)
+        d = Gtk.Dialog(title="Full cleanup", transient_for=WIN, modal=True)
+        d.set_default_size(560, -1); d.set_resizable(False)
+        d.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        d.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        d.get_style_context().add_class("dlg")
+        d.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        go = d.add_button("Delete everything", Gtk.ResponseType.OK)
+        cls(go, "danger")
+        box = d.get_content_area(); box.set_border_width(18); box.set_spacing(10)
+        box.pack_start(cls(Gtk.Label(label="FULL CLEANUP", xalign=0), "h"), False, False, 0)
+        note = Gtk.Label(xalign=0, label="This permanently deletes unused Docker data. Running containers and the images they use are kept.")
+        note.set_line_wrap(True); note.set_max_width_chars(60)
+        box.pack_start(note, False, False, 0)
+        for r in df:
+            line = Gtk.Box(spacing=10)
+            line.pack_start(Gtk.Label(label="·  " + (r.get("Type") or "?"), xalign=0), False, False, 0)
+            line.pack_end(Gtk.Label(label="%s  (%s items)" % (r.get("Size") or "0B", r.get("TotalCount") or 0), xalign=1), False, False, 0)
+            box.pack_start(line, False, False, 0)
+        box.pack_start(cls(Gtk.Label(label="Estimated space to reclaim: " + size_human(reclaim), xalign=0), "dim"), False, False, 0)
+        vol = Gtk.CheckButton(label="Also delete unused volumes (can destroy database data)")
+        vol.set_active(True)
+        box.pack_start(vol, False, False, 0)
+        d.show_all()
+        resp = d.run(); volumes = vol.get_active(); d.destroy()
+        if resp != Gtk.ResponseType.OK: return
+        steps = [("stopped containers", ["docker", "container", "prune", "-f"]),
+                 ("unused images", ["docker", "image", "prune", "-a", "-f"]),
+                 ("build cache", ["docker", "builder", "prune", "-a", "-f"]),
+                 ("unused networks", ["docker", "network", "prune", "-f"])]
+        if volumes: steps.insert(3, ("unused volumes", ["docker", "volume", "prune", "-a", "-f"]))
+        if st["busy"]: return
+        st["busy"] = True; status("Cleaning up…")
+        def work():
+            freed, errors = 0, []
+            for i, (what, cmd) in enumerate(steps):
+                def show(i=i, what=what):
+                    status("Cleaning %s (%d/%d)…" % (what, i + 1, len(steps)))
+                    return False
+                GLib.idle_add(show)
+                rc, out, err = _dc(cmd, 900)
+                if rc != 0:
+                    errors.append((err or out or what).splitlines()[0]); continue
+                for m in re.finditer(r"(?:Total reclaimed space|Total|Reclaimed):\s*([\d.]+\s*[kKmMgGtT]?[bB])", out, re.I):
+                    freed += size_bytes(m.group(1))
+            def fin():
+                st["busy"] = False
+                status("✗ " + errors[0] if errors else "✓ Cleanup done · freed " + size_human(freed))
+                refresh(force=True)
+                return False
+            GLib.idle_add(fin)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def tick():
+        if not alive(): return False
+        if WIN and WIN.stack.get_visible_child_name() == "docker":
+            refresh()
+        return True
+
+    if DOCKER_TIMER["id"] and GLib.MainContext.default().find_source_by_id(DOCKER_TIMER["id"]):
+        GLib.source_remove(DOCKER_TIMER["id"])
+    DOCKER_TIMER["id"] = GLib.timeout_add(5000, tick)
+    b.connect("destroy", lambda _w: st.update(dead=True))
+    # The page is inserted into the stack right after this builder returns, so
+    # wait one main-loop turn before the first poll (alive() needs a parent).
+    GLib.timeout_add(60, lambda: (refresh(force=True), False)[1])
     return b
 
 # ---------------------------------------------------------------- Window
