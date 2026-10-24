@@ -1,33 +1,7 @@
 const std = @import("std");
-const c = @cImport({
-    @cInclude("locale.h");
-    @cInclude("unistd.h");
-    @cInclude("stdio.h");
-    @cInclude("stdlib.h");
-    @cInclude("time.h");
-    @cInclude("alsa/asoundlib.h");
-    @cInclude("sys/timerfd.h");
-    @cInclude("sys/epoll.h");
-    @cInclude("sys/socket.h");
-    @cInclude("sys/un.h");
-    @cInclude("sys/time.h");
-    @cInclude("errno.h");
-    @cInclude("fcntl.h");
-    @cInclude("poll.h");
-    @cInclude("sys/inotify.h");
-    @cInclude("netinet/in.h");
-    @cInclude("arpa/inet.h");
-    // Network status: raw rtnetlink socket (event-driven, no polling) +
-    // getifaddrs() to resolve the active interface. NOTE: we deliberately
-    // do NOT include linux/rtnetlink.h here — it drags in linux/if.h,
-    // which redefines macros already provided by net/if.h below and fails
-    // to compile. We only need sockaddr_nl/AF_NETLINK/NETLINK_ROUTE from
-    // linux/netlink.h; the RTMGRP_* group numbers are hardcoded as Zig
-    // constants instead (they're stable ABI, see rtnetlink(7)).
-    @cInclude("linux/netlink.h");
-    @cInclude("ifaddrs.h");
-    @cInclude("net/if.h");
-});
+// C declarations are translated from src/c.h by build.zig (Zig 0.17 removed
+// the @cImport builtin).
+const c = @import("c");
 
 const config = @import("config");
 const OutMode: type = config.@"build.OutMode";
@@ -35,24 +9,25 @@ const out_mode: OutMode = config.out_mode;
 
 const Out: type = switch (out_mode) {
     .X11 => struct {
-        const x = @cImport(@cInclude("X11/Xlib.h"));
-        var display: ?*x.Display = null;
+        var display: ?*c.Display = null;
 
         fn init() void {
-            display = x.XOpenDisplay(null);
+            display = c.XOpenDisplay(null);
             if (display == null) @panic("XOpenDisplay");
         }
         fn deinit() void {
-            _ = x.XStoreName(display, x.DefaultRootWindow(display), null);
-            _ = x.XCloseDisplay(display);
+            _ = c.XStoreName(display, c.DefaultRootWindow(display), null);
+            _ = c.XCloseDisplay(display);
             display = null;
         }
         fn write() void {
-            if (x.XStoreName(display, x.DefaultRootWindow(display), fStatus.ptr) < 0) @panic("XStoreName");
-            _ = x.XFlush(display);
+            if (c.XStoreName(display, c.DefaultRootWindow(display), fStatus.ptr) < 0) @panic("XStoreName");
+            _ = c.XFlush(display);
         }
     },
     .Wayland => struct {
+        fn init() void {}
+        fn deinit() void {}
         fn write() void {
             _ = c.write(1, fStatus.ptr, fStatus.len);
         }
@@ -228,43 +203,37 @@ fn readTime() void {
 var timerfd: c_int = -1;
 var g_epollfd: c_int = -1;
 const MAX_EVENTS = 8;
+/// Monotonic seconds including suspend (CLOCK_BOOTTIME), only used to notice a
+/// resume on the existing 60s tick. It is not a network poll.
 var last_monotonic: i64 = 0;
 
+fn bootSec() i64 {
+    var ts: c.timespec = undefined;
+    if (c.clock_gettime(c.CLOCK_BOOTTIME, &ts) != 0) return 0;
+    return ts.tv_sec;
+}
+
+fn monoMs() i64 {
+    var ts: c.timespec = undefined;
+    if (c.clock_gettime(c.CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return ts.tv_sec * 1000 + @divTrunc(ts.tv_nsec, 1_000_000);
+}
+
 // ---------------------------------------------------------------------------
-// Network status — entirely event-driven (rtnetlink + inotify + epoll), with
-// the one-minute clock tick borrowed only for self-healing.
+// Network status is event-driven. rtnetlink reports link/address/route changes
+// and inotify reports resolver changes. The bar intentionally reports only
+// local facts: interface, IPv4, route, DNS configuration, and Tailscale state.
+// A conservative non-blocking heartbeat detects silent WAN/exit-node failure;
+// local status remains entirely event-driven and the heartbeat uses one socket,
+// one rotating target, and two failures before it reports `no-inet`.
 //
-// Nothing network-related is polled in the healthy case:
-//   - rtnetlink group socket: link up/down, IPv4 address and default-route
-//     changes arrive as netlink events (netInit);
-//   - inotify on /etc/resolv.conf and /run/systemd/resolve: nameserver config
-//     changes repaint the verdict immediately (dnsInit);
-//   - the reachability probe completes through epoll, so an in-flight probe
-//     costs the bar nothing while waiting (probeStart/probeFinish).
+//   wlan0 192.168.8.162 +ts       local path configured, Tailscale Running
+//   wlan0 192.168.8.162 no-net    no usable local route/IP
+//   wlan0 192.168.8.162 no-dns    no usable resolver configuration
+//   ... ts-                       Tailscale is not Running
+//   ... ts!                       Tailscale reports a health warning
 //
-// zlstatus still runs a one-minute timer for the clock and battery. The network
-// keeps its own probe timer (probeSchedule/probeTick) at one of two cadences:
-// a slow HEARTBEAT while the last verdict was good, and a fast retry the moment
-// it turns bad. The heartbeat exists because nothing local ever reports the one
-// failure config can't see — a silent WAN outage, where link, route, IP, DNS and
-// tailscaled all stay green while no packet leaves the machine. Without it, the
-// bar would keep its last good verdict forever; with it, a silent outage is
-// bounded to PROBE_HEARTBEAT_SEC. It is the only periodic network work zlstatus
-// does, and it is a single non-blocking TCP SYN.
-//
-// Each layer's health is inferred from CONFIGURATION (is there a default route,
-// does resolv.conf list nameservers, is tailscaled Running) rather than by
-// actively probing the network. That is a deliberate trade: an earlier version
-// sent ICMP/TCP/DNS probes from a polling thread and reported `!dns` on a
-// perfectly healthy network, because with a Tailscale exit node the RTT to
-// 1.1.1.1 alone (~476ms measured here) overran the 800ms probe deadline. A
-// config check cannot produce that false alarm, opens no sockets, and keeps the
-// process down to a single thread.
-//
-// The one thing config genuinely cannot answer is "is there internet at all":
-// every one of those signals stays green while the link is up and no packet
-// leaves the machine (dead exit node, captive portal, upstream outage). That
-// case is covered by probeStart/probeFinish below.
+// Every verdict change is appended to ~/.local/state/zlstatus/net.log.
 // ---------------------------------------------------------------------------
 var netfd: c_int = -1;
 var net_buf: [96]u8 = undefined;
@@ -276,13 +245,12 @@ var dns_wd_etc: c_int = -1;
 var dns_wd_resolve: c_int = -1;
 
 // Last interface that held a default route. Used to avoid showing a VPN/tunnel
-// interface with !route during resume, when the physical interface's default
+// interface with no-net during resume, when the physical interface's default
 // route hasn't been restored yet — a race where activeIfaceInto picks the
 // first UP interface (tailscale0) instead of the one that will own the route
 // once the system finishes resuming (wlan0).
 var last_routed_iface: [16]u8 = undefined;
 var last_routed_iface_len: usize = 0;
-var cached_route: RouteInfo = .{};
 var cached_dns: DnsInfo = .{};
 var cached_dns_valid: bool = false;
 
@@ -303,6 +271,80 @@ fn netAppend(len: *usize, s: []const u8) void {
     if (len.* + s.len > net_buf.len) return;
     @memcpy(net_buf[len.*..][0..s.len], s);
     len.* += s.len;
+}
+
+// --- Network log -----------------------------------------------------------
+// zlstatus runs from xinitrc, where stderr usually disappears into the display
+// manager's journal or nowhere at all. Keep a small explicit log so a failed
+// connection leaves evidence instead of a silent `no-net`: every verdict change
+// and every init failure is appended with a timestamp and the inputs that
+// produced it. This is the only file zlstatus writes.
+var net_log_fd: c_int = -1;
+var net_log_path: [256]u8 = undefined;
+
+fn logTimestamp(buf: []u8) []const u8 {
+    var t: c.time_t = c.time(null);
+    const tm = c.localtime(&t);
+    if (tm == null) return "?";
+    const n = c.strftime(buf.ptr, buf.len, "%Y-%m-%d %H:%M:%S", tm);
+    return buf[0..n];
+}
+
+/// mkdir(2) that tolerates an existing directory. Used to create the log's
+/// parents on a fresh account where ~/.local/state does not exist yet; without
+/// them the log silently falls back to stderr (which xinitrc usually discards).
+fn mkdirp(path: []const u8) void {
+    var buf: [256]u8 = undefined;
+    if (path.len >= buf.len) return;
+    @memcpy(buf[0..path.len], path);
+    buf[path.len] = 0;
+    _ = c.mkdir(@ptrCast(&buf), @as(c.mode_t, 0o755));
+}
+
+fn netLogInit() void {
+    const home_z = c.getenv("HOME") orelse return;
+    const home = std.mem.span(home_z);
+
+    var dirbuf: [256]u8 = undefined;
+    const local = std.fmt.bufPrint(&dirbuf, "{s}/.local", .{home}) catch return;
+    mkdirp(local);
+    const state = std.fmt.bufPrint(&dirbuf, "{s}/.local/state", .{home}) catch return;
+    mkdirp(state);
+    const dir = std.fmt.bufPrint(&dirbuf, "{s}/.local/state/zlstatus", .{home}) catch return;
+    mkdirp(dir);
+
+    const p = std.fmt.bufPrint(&net_log_path, "{s}/net.log", .{dir}) catch return;
+    net_log_path[p.len] = 0;
+
+    // Keep the file small: one previous generation is enough to see what
+    // happened before the last restart.
+    var st: c.struct_stat = undefined;
+    if (c.stat(@ptrCast(&net_log_path), &st) == 0 and st.st_size > 128 * 1024) {
+        var oldbuf: [260]u8 = undefined;
+        const old = std.fmt.bufPrint(&oldbuf, "{s}.1", .{p}) catch return;
+        oldbuf[old.len] = 0;
+        _ = c.rename(@ptrCast(&net_log_path), @ptrCast(&oldbuf));
+    }
+
+    net_log_fd = c.open(@ptrCast(&net_log_path), c.O_WRONLY | c.O_CREAT | c.O_APPEND, @as(c.mode_t, 0o644));
+}
+
+fn netLog(comptime fmt: []const u8, args: anytype) void {
+    var body: [512]u8 = undefined;
+    const msg = std.fmt.bufPrint(&body, fmt, args) catch return;
+
+    var tsbuf: [32]u8 = undefined;
+    const ts = logTimestamp(&tsbuf);
+
+    var line: [640]u8 = undefined;
+    const full = std.fmt.bufPrint(&line, "{s} zlstatus: net: {s}\n", .{ ts, msg }) catch return;
+    line[full.len] = 0;
+
+    if (net_log_fd >= 0) {
+        _ = c.write(net_log_fd, full.ptr, full.len);
+    } else {
+        _ = c.fprintf(c.stderr, "%s", full.ptr);
+    }
 }
 
 /// What one pass over /proc/net/route tells us: whether we are routed at all,
@@ -372,6 +414,23 @@ fn activeIfaceInto(buf: []u8) ?[]const u8 {
         return buf[0..@intCast(n)];
     }
     return null;
+}
+
+/// Is `ifname` actually up and running right now? /proc/net/route can keep a
+/// stale default route for an interface that has already gone down; without
+/// this check the bar would call that state healthy just because an address is
+/// still bound.
+fn ifaceIsUp(ifname: []const u8) bool {
+    var ifaddr: ?*c.ifaddrs = null;
+    if (c.getifaddrs(&ifaddr) != 0) return false;
+    defer _ = c.freeifaddrs(ifaddr);
+    var cur: ?*c.ifaddrs = ifaddr;
+    while (cur) |ifa| : (cur = ifa.*.ifa_next) {
+        if (!std.mem.eql(u8, std.mem.span(ifa.*.ifa_name), ifname)) continue;
+        const flags = ifa.*.ifa_flags;
+        return flags & c.IFF_UP != 0 and flags & c.IFF_RUNNING != 0;
+    }
+    return false;
 }
 
 const DnsInfo = struct {
@@ -452,74 +511,343 @@ const TS_SOCK = "/run/tailscale/tailscaled.sock";
 const TS_REQ = "GET /localapi/v0/status HTTP/1.1\r\nHost: local-tailscaled.sock\r\n\r\n";
 const TS_KEY = "\"BackendState\"";
 
-/// Is tailscaled up and logged in?
+const TsBackend = enum { absent, stopped, starting, running, needs_login, other };
+
+const TsInfo = struct {
+    /// The LocalAPI socket answered, i.e. tailscaled is installed and running
+    /// as a service. `backend` then says whether the node itself is up.
+    present: bool = false,
+    backend: TsBackend = .absent,
+    online: bool = false,
+    /// Tailscale published at least one health warning (dead relay, no DERP,
+    /// exit node trouble, ...). Shown as `ts!`; details live in vxpanel.
+    health: bool = false,
+};
+
+fn jsonStringAfter(body: []const u8, key: []const u8) ?[]const u8 {
+    const at = std.mem.indexOf(u8, body, key) orelse return null;
+    var i = at + key.len;
+    while (i < body.len and body[i] != ':') i += 1;
+    i += 1; // step past the colon itself
+    while (i < body.len and (body[i] == ' ' or body[i] == '\t')) i += 1;
+    if (i >= body.len or body[i] != '"') return null;
+    i += 1;
+    const start = i;
+    while (i < body.len and body[i] != '"') i += 1;
+    if (i >= body.len) return null;
+    return body[start..i];
+}
+
+fn jsonBoolAfter(body: []const u8, key: []const u8) ?bool {
+    const at = std.mem.indexOf(u8, body, key) orelse return null;
+    var i = at + key.len;
+    while (i < body.len and body[i] != ':') i += 1;
+    i += 1;
+    while (i < body.len and (body[i] == ' ' or body[i] == '\t')) i += 1;
+    if (std.mem.startsWith(u8, body[i..], "true")) return true;
+    if (std.mem.startsWith(u8, body[i..], "false")) return false;
+    return null;
+}
+
+/// True when key names a non-empty JSON array; false for [], null, or a
+/// non-array. Only the first element is inspected, which is enough for
+/// Tailscale's `Health` list.
+fn jsonArrayNonEmptyAfter(body: []const u8, key: []const u8) ?bool {
+    const at = std.mem.indexOf(u8, body, key) orelse return null;
+    var i = at + key.len;
+    while (i < body.len and body[i] != ':') i += 1;
+    if (i >= body.len) return null;
+    i += 1;
+    while (i < body.len and (body[i] == ' ' or body[i] == '\t' or
+        body[i] == '\r' or body[i] == '\n')) i += 1;
+    if (i >= body.len) return null;
+    if (body[i] != '[') return false; // null / absent
+    i += 1;
+    while (i < body.len and (body[i] == ' ' or body[i] == '\t' or
+        body[i] == '\r' or body[i] == '\n')) i += 1;
+    return i < body.len and body[i] != ']';
+}
+
+/// What tailscaled reports right now. BackendState is the authority for on/off:
+/// `Self.Online` alone is false in several healthy states (starting, a quiet
+/// tailnet) and was the reason the old Super+Shift+\ toggle could see "off"
+/// while Tailscale was up and then report "Connected" on `tailscale up`.
 ///
-/// BackendState is a short enum ("Running", "Stopped", "NeedsLogin", "NoState").
-/// Anything other than Running means traffic is not going through Tailscale,
-/// which is what the bar reports.
-fn tailscaleRunning() bool {
+/// The read is bounded and non-blocking-ish: tailscaled can be mid-restart and
+/// leave the socket present but unaccepting, and the bar must never stall on
+/// that.
+fn tailscaleInfo() TsInfo {
+    var info: TsInfo = .{};
+
     const fd = c.socket(c.AF_UNIX, c.SOCK_STREAM, 0);
-    if (fd < 0) return false; // no tailscaled at all
+    if (fd < 0) return info; // no tailscaled at all
     defer _ = c.close(fd);
 
     var addr: c.sockaddr_un = std.mem.zeroes(c.sockaddr_un);
     addr.sun_family = c.AF_UNIX;
-    if (TS_SOCK.len >= addr.sun_path.len) return false;
+    if (TS_SOCK.len >= addr.sun_path.len) return info;
     @memcpy(addr.sun_path[0..TS_SOCK.len], TS_SOCK);
     addr.sun_path[TS_SOCK.len] = 0;
 
-    // Bounded connect: tailscaled can be mid-restart and leave the socket
-    // present but unaccepting, and the bar must never stall on that.
-    if (!connectWithTimeout(fd, @ptrCast(&addr), @sizeOf(c.sockaddr_un))) return false;
+    if (!connectWithTimeout(fd, @ptrCast(&addr), @sizeOf(c.sockaddr_un))) return info;
+    info.present = true;
     setSocketTimeout(fd, 100);
 
-    if (c.write(fd, TS_REQ, TS_REQ.len) < 0) return false;
+    if (c.write(fd, TS_REQ, TS_REQ.len) < 0) return info;
 
-    // BackendState is the third key of the JSON body, which follows ~194 bytes
-    // of HTTP headers, so the key lands around byte 254. One read() is
-    // comfortably enough: asking for a full 512-byte buffer would be a trap,
-    // since the body itself is ~5.5KB and the read would block waiting for a
-    // header's worth of JSON that never arrives. Read once, then check.
-    var buf: [512]u8 = undefined;
+    // BackendState lands around byte 40, Self.Online around byte 980 and the
+    // Health array around byte 3 KiB once peers exist. 4 KiB covers all three
+    // with room to spare; read() returns what is available rather than waiting
+    // to fill the buffer, and the 100 ms socket timeout bounds tailscaled.
+    var buf: [4096]u8 = undefined;
     const n = c.read(fd, &buf, buf.len);
-    if (n <= 0) return false;
+    if (n <= 0) return info;
     const body = buf[0..@intCast(n)];
 
-    const at = std.mem.indexOf(u8, body, TS_KEY) orelse return false;
-    var i = at + TS_KEY.len;
-    while (i < body.len and body[i] != ':') i += 1;
-    i += 1; // step past the colon itself
-    while (i < body.len and (body[i] == ' ' or body[i] == '\t')) i += 1;
-    if (i >= body.len or body[i] != '"') return false;
-    i += 1;
-    return std.mem.startsWith(u8, body[i..], "Running\"");
+    if (jsonStringAfter(body, TS_KEY)) |state| {
+        info.backend = if (std.mem.eql(u8, state, "Running"))
+            .running
+        else if (std.mem.eql(u8, state, "Stopped"))
+            .stopped
+        else if (std.mem.eql(u8, state, "Starting"))
+            .starting
+        else if (std.mem.eql(u8, state, "NeedsLogin"))
+            .needs_login
+        else
+            .other;
+    }
+
+    // Self.Online is the first `"Online"` after `"Self"`; only look inside the
+    // Self object so a peer's Online flag can never be mistaken for ours.
+    if (std.mem.indexOf(u8, body, "\"Self\"")) |sp| {
+        if (jsonBoolAfter(body[sp..], "\"Online\"")) |b| info.online = b;
+    }
+
+    // Health is a top-level array of warning strings. An empty array (or null)
+    // means tailscaled has nothing to report. This is Tailscale's own verdict,
+    // not a reachability probe, so it is safe to show even when the generic
+    // internet probe is green.
+    if (jsonArrayNonEmptyAfter(body, "\"Health\"")) |bad| info.health = bad;
+
+    return info;
 }
 
-/// Re-read current route / DNS / interface state, repaint the bar and (re)arm
-/// the reachability probe. Called from every network wakeup: netlink events,
-/// resolv.conf changes via inotify, and suspend/resume detection.
+// --- Internet reachability -------------------------------------------------
+// A route and an IP cannot detect a silent WAN/exit-node failure. One very
+// small non-blocking TCP connect is therefore used as a heartbeat. This is
+// intentionally conservative: one rotating target at a time, a 4s deadline,
+// and two consecutive failed rounds before `no-inet`. A successful check
+// clears the fault immediately. This avoids the old false alarms caused by a
+// single slow public destination while still exposing a real outage without
+// threads or blocking the bar's epoll loop.
+const ProbeState = enum { unknown, online, offline };
+const ProbeTarget = struct { addr: [:0]const u8, port: u16 };
+const PROBE_TARGETS = [_]ProbeTarget{
+    .{ .addr = "1.1.1.1", .port = 443 },
+    .{ .addr = "8.8.8.8", .port = 443 },
+    .{ .addr = "9.9.9.9", .port = 443 },
+};
+const PROBE_TIMEOUT_MS: u64 = 2500;
+const PROBE_HEALTHY_MS: u64 = 5000;
+const PROBE_RETRY_MS: u64 = 1000;
+const PROBE_SETTLE_MS: u64 = 100;
+const PROBE_FAIL_LIMIT: u8 = 2;
+
+var probe_state: ProbeState = .unknown;
+var probe_timerfd: c_int = -1;
+var probe_fd: c_int = -1;
+var probe_active: bool = false;
+var probe_again: bool = false;
+var probe_target: usize = 0;
+var probe_failures: u8 = 0;
+
+fn probeArm(ms: u64) void {
+    if (probe_timerfd < 0) return;
+    var its: c.itimerspec = std.mem.zeroes(c.itimerspec);
+    its.it_value.tv_sec = @intCast(ms / 1000);
+    its.it_value.tv_nsec = @intCast((ms % 1000) * 1_000_000);
+    _ = c.timerfd_settime(probe_timerfd, 0, &its, null);
+}
+
+fn probeClose() void {
+    if (probe_fd >= 0) {
+        _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_DEL, probe_fd, null);
+        _ = c.close(probe_fd);
+        probe_fd = -1;
+    }
+    probe_active = false;
+}
+
+fn probeKick() void {
+    if (probe_timerfd < 0) return;
+    if (probe_active) {
+        probe_again = true;
+        return;
+    }
+    probeArm(PROBE_SETTLE_MS);
+}
+
+fn probeFinish(ok: bool) void {
+    probeClose();
+    if (ok) {
+        const changed = probe_state != .online;
+        probe_state = .online;
+        probe_failures = 0;
+        if (changed) netLog("internet check: reachable", .{});
+    } else {
+        if (probe_failures < 255) probe_failures += 1;
+        if (probe_failures >= PROBE_FAIL_LIMIT) {
+            const changed = probe_state != .offline;
+            probe_state = .offline;
+            if (changed) netLog("internet check: no response after {d} checks", .{probe_failures});
+        }
+    }
+    netRefresh();
+    const next = if (probe_again) blk: {
+        probe_again = false;
+        break :blk PROBE_SETTLE_MS;
+    } else if (probe_state == .offline or probe_failures > 0)
+        PROBE_RETRY_MS
+    else
+        PROBE_HEALTHY_MS;
+    probeArm(next);
+}
+
+fn probeStart() void {
+    if (probe_timerfd < 0 or probe_active) return;
+    if (!udpRouteOk()) {
+        probe_state = .unknown;
+        probe_failures = 0;
+        probeArm(PROBE_RETRY_MS);
+        return;
+    }
+
+    const t = PROBE_TARGETS[probe_target];
+    probe_target = (probe_target + 1) % PROBE_TARGETS.len;
+    var sa: c.sockaddr_in = std.mem.zeroes(c.sockaddr_in);
+    sa.sin_family = c.AF_INET;
+    sa.sin_port = c.htons(t.port);
+    if (c.inet_pton(c.AF_INET, t.addr, &sa.sin_addr) != 1) {
+        probeFinish(false);
+        return;
+    }
+    const fd = c.socket(c.AF_INET, c.SOCK_STREAM | c.SOCK_NONBLOCK, 0);
+    if (fd < 0) {
+        probeFinish(false);
+        return;
+    }
+    probe_fd = fd;
+    probe_active = true;
+    if (c.connect(fd, @ptrCast(&sa), @sizeOf(c.sockaddr_in)) == 0) {
+        probeFinish(true);
+        return;
+    }
+    const err = c.__errno_location().*;
+    if (err != c.EINPROGRESS and err != c.EAGAIN) {
+        probeFinish(false);
+        return;
+    }
+    var ev = c.epoll_event{
+        .events = @as(u32, c.EPOLLOUT) | c.EPOLLERR | c.EPOLLHUP | c.EPOLLET,
+        .data = .{ .u64 = @intFromEnum(Event.ProbeSocket) },
+    };
+    if (c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, fd, &ev) < 0) {
+        probeFinish(false);
+        return;
+    }
+    probeArm(PROBE_TIMEOUT_MS);
+}
+
+fn probeSocketHandle() void {
+    if (!probe_active or probe_fd < 0) return;
+    var err: c_int = 0;
+    var len: c.socklen_t = @sizeOf(c_int);
+    if (c.getsockopt(probe_fd, c.SOL_SOCKET, c.SO_ERROR, @ptrCast(&err), &len) != 0)
+        err = 1;
+    probeFinish(err == 0);
+}
+
+fn probeTimerHandle() void {
+    if (probe_timerfd < 0) return;
+    var expirations: u64 = undefined;
+    _ = c.read(probe_timerfd, &expirations, @sizeOf(u64));
+    if (probe_active) probeFinish(false) else probeStart();
+}
+
+fn probeInit() void {
+    probe_timerfd = c.timerfd_create(c.CLOCK_BOOTTIME, c.TFD_NONBLOCK);
+    if (probe_timerfd < 0) {
+        netLog("internet check timer unavailable: errno {d}", .{c.__errno_location().*});
+        return;
+    }
+    var ev = c.epoll_event{
+        .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
+        .data = .{ .u64 = @intFromEnum(Event.ProbeTimer) },
+    };
+    if (c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, probe_timerfd, &ev) < 0) {
+        netLog("internet check epoll registration failed: errno {d}", .{c.__errno_location().*});
+        _ = c.close(probe_timerfd);
+        probe_timerfd = -1;
+        return;
+    }
+    probeKick();
+}
+
+/// Does the kernel currently have a route for an arbitrary IPv4 destination?
+///
+/// A UDP `connect()` is a local route lookup: it sends no packets (a datagram
+/// is only transmitted on send(2)), but it makes the kernel pick a source
+/// address and fail with ENETUNREACH when no route exists. Unlike parsing
+/// /proc/net/route, this sees policy routing and VPN/exit-node tables, so a
+/// working Tailscale route can never be misreported as `no-net`.
+fn udpRouteOk() bool {
+    const fd = c.socket(c.AF_INET, c.SOCK_DGRAM, 0);
+    if (fd < 0) return false;
+    defer _ = c.close(fd);
+
+    var sa: c.sockaddr_in = std.mem.zeroes(c.sockaddr_in);
+    sa.sin_family = c.AF_INET;
+    sa.sin_port = c.htons(443);
+    if (c.inet_pton(c.AF_INET, "1.1.1.1", &sa.sin_addr) != 1) return false;
+    return c.connect(fd, @ptrCast(&sa), @sizeOf(c.sockaddr_in)) == 0;
+}
+
+
+/// Re-read current route / DNS / interface state and repaint the bar. Called
+/// from every network wakeup: netlink events, resolv.conf changes via inotify,
+/// and resume detection.
 fn netRefresh() void {
     const route = readRouteInfo();
-    cached_route = route;
     cached_dns_valid = false;
     netRender(route);
-
-    probeStart(route.has_default);
 }
 
-/// Rebuild net_buf from current state. Split out from netRefresh because a probe
-/// verdict must repaint the bar WITHOUT re-arming: re-arming here would make
-/// every verdict kick off another probe, and a probe that resolves instantly
-/// (refused, or unroutable) would spin at whatever rate it completes.
+var net_last_log: [96]u8 = undefined;
+var net_last_log_len: usize = 0;
+var net_logged: bool = false;
+
+/// Log only when the visible verdict changes, so a busy link does not fill the
+/// log with identical lines. The caller's format includes the raw inputs.
+fn netLogIfChanged(comptime fmt: []const u8, args: anytype) void {
+    if (net_logged and std.mem.eql(u8, net_last_log[0..net_last_log_len], net_buf[0..net_len])) return;
+    net_last_log_len = @min(net_len, net_last_log.len);
+    @memcpy(net_last_log[0..net_last_log_len], net_buf[0..net_last_log_len]);
+    net_logged = true;
+    netLog(fmt, args);
+}
+
+/// Rebuild net_buf from current state.
 ///
 /// Plain text, faults in a fixed order so the string stays stable between
 /// refreshes — a bar whose text jitters is worse than one that is merely terse.
 /// Examples:
-///   `wlan0 192.168.1.42`         healthy
-///   `wlan0 192.168.1.42 +ts`     healthy, Tailscale exit is running
-///   `eth0 192.168.1.9 no-route`  link up, no default route yet
-///   `wlan0 192.168.1.42 no-net`  reachability probe failed
-///   `net down`                   nothing usable is up
+///   `wlan0 192.168.1.42`          healthy
+///   `wlan0 192.168.1.42 +ts`      healthy, Tailscale Running
+///   `wlan0 192.168.1.42 ts-`      tailscaled running, node not connected
+///   `wlan0 192.168.1.42 +ts!`     Tailscale Running with a health warning
+///   `wlan0 192.168.1.42 no-net`   no usable local route/IP
+///   `wlan0 no-ip no-net`          link up, DHCP supplied no IPv4 address
+///   `net down`                    nothing usable is up
 fn netRender(route: RouteInfo) void {
     // Prefer the interface that owns the default route. When there's no default
     // route, prefer the last interface that HAD one (handles resume race where
@@ -540,6 +868,12 @@ fn netRender(route: RouteInfo) void {
         // No default route and no memory of one: fall back to first UP interface
         break :blk activeIfaceInto(&ifbuf) orelse {
             netSetDown();
+            const dns = readDnsInfo();
+            const ts = tailscaleInfo();
+            netLogIfChanged(
+                "verdict \"{s}\" iface=- ip=- up=false route={} dns={d} ts={s} online={} reason=no-usable-interface",
+                .{ net_buf[0..net_len], route.has_default, dns.count, @tagName(ts.backend), ts.online },
+            );
             return;
         };
     };
@@ -549,50 +883,90 @@ fn netRender(route: RouteInfo) void {
 
     // IPv4 of the active interface, when it has one.
     var ipbuf: [16]u8 = undefined;
-    if (ifaceAddrInto(&ipbuf, name)) |ip| {
+    const ip = ifaceAddrInto(&ipbuf, name);
+    if (ip) |addr| {
         netAppend(&len, " ");
-        netAppend(&len, ip);
+        netAppend(&len, addr);
     }
 
-    if (!route.has_default) netAppend(&len, " no-route");
+    // A route can outlive the interface it points at, so "up" and "routed" are
+    // checked separately. `up` is diagnostic: a Wi-Fi driver can drop
+    // IFF_RUNNING for a moment while the address and route stay usable, and
+    // that must not paint `no-net`. The verdict itself comes from the kernel
+    // route lookup, not from /proc/net/route: the file only shows the main
+    // table, while a VPN/exit node can carry traffic through a policy table.
+    const up = ifaceIsUp(name);
+    const routed = udpRouteOk();
+    const reason: []const u8 = if (!routed and ip == null)
+        "no-ipv4-no-route"
+    else if (!routed)
+        "no-route"
+    else if (ip == null)
+        "no-ipv4"
+    else
+        "ok";
 
-    const ts_ok = tailscaleRunning();
+    if (!std.mem.eql(u8, reason, "ok"))
+        netAppend(&len, " no-net")
+    else if (probe_state == .offline)
+        netAppend(&len, " no-inet");
+
+    const ts = tailscaleInfo();
     if (!cached_dns_valid) {
         cached_dns = readDnsInfo();
         cached_dns_valid = true;
     }
-    if (cached_dns.count == 0 or (cached_dns.all_cgnat and !ts_ok)) netAppend(&len, " no-dns");
+    const dns_bad = cached_dns.count == 0 or
+        (cached_dns.all_cgnat and ts.backend != .running and ts.backend != .starting);
+    if (dns_bad) netAppend(&len, " no-dns");
 
-    if (ts_ok) netAppend(&len, " +ts");
-
-    if (net_ok) |ok| {
-        if (!ok) netAppend(&len, " no-net");
+    switch (ts.backend) {
+        // Show on/off plus Tailscale's own health warning. Self.Online can lag
+        // behind BackendState and is logged but not used for the bar; vxpanel
+        // shows the full Online/Health view.
+        .running => netAppend(&len, if (ts.health) " +ts!" else " +ts"),
+        .absent => {},
+        else => netAppend(&len, " ts-"),
     }
 
     net_len = len;
+    netLogIfChanged(
+        "verdict \"{s}\" iface={s} ip={s} up={} routed={} dns={d} dns_src={s} ts={s} online={} health={} reason={s}",
+        .{
+            net_buf[0..net_len],
+            name,
+            ip orelse "-",
+            up,
+            routed,
+            cached_dns.count,
+            if (cached_dns.all_cgnat) "tailnet" else "public",
+            @tagName(ts.backend),
+            ts.online,
+            ts.health,
+            reason,
+        },
+    );
 }
 
 fn netInit() void {
-    // Guarantee the reachability heartbeat is running even before the first
-    // verdict lands (and in the no-route case, where probeStart has nothing to
-    // connect to yet). probeFinish re-arms it at the right cadence thereafter.
-    probeSchedule();
+    netLogInit();
+    netLog("start: event-driven local status (rtnetlink + inotify)", .{});
 
     netfd = c.socket(c.AF_NETLINK, c.SOCK_RAW | c.SOCK_NONBLOCK, c.NETLINK_ROUTE);
 
     netRefresh();
 
     if (netfd < 0) {
-        _ = c.fprintf(c.stderr, "net: socket() failed, link-only status\n");
+        netLog("netlink socket() failed: errno {d}; status will only change on resume", .{c.__errno_location().*});
         return;
     }
     var addr: c.sockaddr_nl = std.mem.zeroes(c.sockaddr_nl);
     addr.nl_family = c.AF_NETLINK;
-    // RTMGRP_IPV4_ROUTE is what makes `!route` appear the moment a default route
-    // comes or goes, rather than up to a minute later.
+    // RTMGRP_IPV4_ROUTE is what makes `no-net` appear the moment a default route
+    // comes or goes, rather than waiting for something else to wake the bar.
     addr.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV4_ROUTE;
     if (c.bind(netfd, @ptrCast(&addr), @sizeOf(c.sockaddr_nl)) < 0) {
-        _ = c.fprintf(c.stderr, "net: bind() failed, link-only status\n");
+        netLog("netlink bind() failed: errno {d}; status will only change on resume", .{c.__errno_location().*});
         _ = c.close(netfd);
         netfd = -1;
         return;
@@ -601,9 +975,9 @@ fn netInit() void {
         .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
         .data = .{ .u64 = @intFromEnum(Event.NetChange) },
     };
-    // Non-fatal: without this the bar repaints on the other wakeups that still
-    // exist (inotify, probe, suspend detection).
-    _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, netfd, &event);
+    // Non-fatal: without this the bar still repaints on inotify and resume.
+    if (c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, netfd, &event) < 0)
+        netLog("netlink epoll_ctl failed: errno {d}", .{c.__errno_location().*});
 }
 
 /// Watch the two places resolv.conf actually lives so nameserver changes repaint
@@ -616,14 +990,14 @@ fn netInit() void {
 fn dnsInit() void {
     dnsfd = c.inotify_init1(c.IN_NONBLOCK);
     if (dnsfd < 0) {
-        _ = c.fprintf(c.stderr, "net: inotify_init1() failed, DNS changes only on netlink events\n");
+        netLog("inotify_init1() failed: errno {d}; DNS changes only on netlink events", .{c.__errno_location().*});
         return;
     }
     const dir_mask: u32 = @intCast(c.IN_MODIFY | c.IN_CREATE | c.IN_MOVED_TO | c.IN_DELETE | c.IN_ATTRIB);
     dns_wd_etc = c.inotify_add_watch(dnsfd, "/etc", dir_mask);
     dns_wd_resolve = c.inotify_add_watch(dnsfd, "/run/systemd/resolve", dir_mask);
     if (dns_wd_etc < 0 and dns_wd_resolve < 0) {
-        _ = c.fprintf(c.stderr, "net: no resolv.conf path watchable, keeping netlink-only DNS\n");
+        netLog("no resolv.conf path watchable: errno {d}; DNS changes only on netlink events", .{c.__errno_location().*});
         _ = c.close(dnsfd);
         dnsfd = -1;
         return;
@@ -633,7 +1007,8 @@ fn dnsInit() void {
         .data = .{ .u64 = @intFromEnum(Event.DnsChange) },
     };
     // Non-fatal: without this we still repaint on every netlink event.
-    _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, dnsfd, &event);
+    if (c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, dnsfd, &event) < 0)
+        netLog("inotify epoll_ctl failed: errno {d}", .{c.__errno_location().*});
 }
 
 /// Drain the inotify buffer; refresh only if a watched resolv.conf actually
@@ -718,176 +1093,6 @@ fn ueventHandle() void {
     if (!power_changed) return;
     readBatCapacity();
     readBatStatus();
-}
-
-// --- Internet reachability probe -------------------------------------------
-// The one thing the config checks above cannot answer: with the link up, the
-// route installed, nameservers listed and tailscaled Running, every signal is
-// green while nothing actually leaves the machine — a dead exit node, a
-// captive portal, an upstream outage. That is exactly the state this reports.
-//
-// A TCP connect to a public IP:443. Never a DNS lookup (that would fold the
-// nameserver check into this and double-count one failure) and never ICMP
-// (commonly rate-limited or dropped outright, so it false-alarms).
-//
-// The connect is issued non-blocking and the verdict is collected later from
-// SO_ERROR when the fd reports writable, so a black-holed destination costs the
-// bar nothing: no sleep, no stall, no thread. This is the difference from the
-// probe version the header comment describes — that one blocked, and a ~476ms
-// RTT through a Tailscale exit node overran its deadline on a perfectly healthy
-// network. Here the only deadline is the kernel's own, and exceeding it just
-// means the next refresh re-probes.
-//
-// Two independent signals, deliberately not collapsed into one: reachability
-// and name resolution. `!net` alone means the WAN is gone; `!net` plus `!dns`
-// means the nameserver check failed too, the more actionable pair when
-// Tailscale is involved.
-const PROBE_ADDR = "1.1.1.1";
-const PROBE_PORT: u16 = 443;
-// A real connect through a Tailscale exit node measured ~476ms here, so this is
-// generous on purpose: it only exists to stop a silently-dropped SYN from
-// pinning the probe in flight until the kernel's own ~127s connect timeout,
-// which would freeze the verdict at whatever the last refresh saw. Checked from
-// the short retry tick below, so a stuck probe resolves in ~PROBE_RETRY_SEC.
-const PROBE_STUCK_SEC: i64 = 8;
-
-// How often to re-probe while the last verdict was unhealthy. A once-a-minute
-// tick is far too coarse to notice the internet COMING BACK: the bar would keep
-// saying `no-net` for up to a minute after connectivity returned, which reads as
-// "still broken". So the bad case retries every PROBE_RETRY_SEC.
-const PROBE_RETRY_SEC: i64 = 2;
-// Heartbeat while the last verdict was good. This is the ONLY thing that can
-// notice a silent WAN outage (dead exit node, upstream/router gone) — every
-// local signal stays green in that state and no kernel event fires — so it
-// bounds how long the bar can sit on a stale verdict. It is one non-blocking
-// TCP SYN every PROBE_HEARTBEAT_SEC, i.e. no measurable cost.
-const PROBE_HEARTBEAT_SEC: i64 = 10;
-var probe_timerfd: c_int = -1;
-
-var probe_fd: c_int = -1;
-// null until a probe has produced a verdict. Null is NOT "unreachable": at
-// startup the bar shows the clean `wlan0 ts` until the first result lands, rather
-// than alarming about a link it has not measured yet.
-var net_ok: ?bool = null;
-var probe_started: i64 = 0;
-
-fn probeElapsedSec() i64 {
-    var ts: c.timespec = undefined;
-    if (c.clock_gettime(c.CLOCK_MONOTONIC, &ts) != 0) return 0;
-    const elapsed = ts.tv_sec;
-
-    // Detect suspend/resume: if monotonic clock jumped backward or by more than
-    // a minute, the system was suspended. Force a network refresh to catch any
-    // configuration changes that happened during sleep.
-    if (last_monotonic > 0) {
-        const delta = elapsed - last_monotonic;
-        if (delta < 0 or delta > 120) {
-            _ = c.fprintf(c.stderr, "net: detected suspend/resume, refreshing\n");
-            netRefresh();
-        }
-    }
-    last_monotonic = elapsed;
-
-    return elapsed;
-}
-
-/// Begin a probe, if one is not already in flight. `have_route` is the caller's
-/// freshly-read default-route state: with no route the destination is
-/// unroutable, so connecting would only hang until the kernel gives up, and
-/// `!route` already says what is wrong.
-fn probeStart(have_route: bool) void {
-    if (probe_fd >= 0) return;
-    if (!have_route) return;
-
-    const fd = c.socket(c.AF_INET, c.SOCK_STREAM, 0);
-    if (fd < 0) return;
-
-    var addr: c.sockaddr_in = std.mem.zeroes(c.sockaddr_in);
-    addr.sin_family = c.AF_INET;
-    addr.sin_port =    if (c.inet_pton(c.AF_INET, PROBE_ADDR, &addr.sin_addr) != 1) {
-        _ = c.close(fd);
-        return;
-    }
-
-    const flags = c.fcntl(fd, c.F_GETFL, @as(c_int, 0));
-    _ = c.fcntl(fd, c.F_SETFL, flags | c.O_NONBLOCK);
-
-    var event = c.epoll_event{
-        .events = @as(u32, c.EPOLLOUT) | c.EPOLLERR,
-        .data = .{ .u64 = @intFromEnum(Event.ProbeDone) },
-    };
-    if (c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, fd, &event) < 0) {
-        _ = c.close(fd);
-        return;
-    }
-
-    probe_fd = fd;
-    probe_started = probeElapsedSec();
-
-    if (c.connect(fd, @ptrCast(&addr), @sizeOf(c.sockaddr_in)) == 0) {
-        probeFinish(false);
-    }
-}
-
-/// Collect the verdict for an in-flight probe. `stuck` forces a failure verdict
-/// for a connect that has outrun PROBE_STUCK_SEC — SO_ERROR is still EINPROGRESS
-/// there, so it would otherwise read as success.
-fn probeFinish(stuck: bool) void {
-    const fd = probe_fd;
-    if (fd < 0) return;
-    probe_fd = -1;
-    defer {
-        _ = c.epoll_ctl(g_epollfd, c.EPOLL_CTL_DEL, fd, null);
-        _ = c.close(fd);
-    }
-
-    if (stuck) {
-        net_ok = false;
-    } else {
-        var err: c_int = 0;
-        var errlen: c.socklen_t = @sizeOf(c_int);
-        if (c.getsockopt(fd, c.SOL_SOCKET, c.SO_ERROR, &err, &errlen) < 0) return;
-        net_ok = (err == 0);
-    }
-    netRender(cached_route);
-
-    // Reschedule at the cadence the fresh verdict deserves: fast retry while
-    // unhealthy, slow heartbeat while healthy.
-    probeSchedule();
-}
-
-/// (Re)arm the probe timer at the cadence the current verdict deserves:
-/// PROBE_RETRY_SEC while unhealthy (so recovery shows up within a couple of
-/// seconds), PROBE_HEARTBEAT_SEC while healthy (so a silent WAN outage is
-/// noticed rather than held as a stale good verdict). Auto-repeating: it keeps
-/// firing until rescheduled, so an in-flight stuck probe still gets its expiry
-/// check on the next tick.
-fn probeSchedule() void {
-    if (probe_timerfd < 0) return;
-    const secs: i64 = if (net_ok == false) PROBE_RETRY_SEC else PROBE_HEARTBEAT_SEC;
-    const it = c.itimerspec{
-        .it_value = .{ .tv_sec = secs, .tv_nsec = 0 },
-        .it_interval = .{ .tv_sec = secs, .tv_nsec = 0 },
-    };
-    _ = c.timerfd_settime(probe_timerfd, 0, &it, null);
-}
-
-/// Probe maintenance. Runs from the probe timer (heartbeat while healthy, fast
-/// retry while unhealthy) and, as a belt-and-braces safety net, from the
-/// once-a-minute tick:
-///  - a probe still in flight expires if it outran its deadline;
-///  - otherwise a new probe is armed. The timer already fires at the right
-///    cadence (probeSchedule), so this simply refills the pipe each tick.
-/// Real events still drive everything else: netlink (link/route/addr), inotify
-/// (resolv.conf) and suspend/resume each refresh and probe immediately.
-fn probeTick() void {
-    const elapsed = probeElapsedSec(); // also detects suspend/resume
-    if (probe_fd >= 0) {
-        if (elapsed - probe_started < PROBE_STUCK_SEC) return;
-        probeFinish(true);
-        return;
-    }
-    probeStart(cached_route.has_default);
 }
 
 // ---------------------------------------------------------------------------
@@ -1129,9 +1334,118 @@ fn mpdHandleEvent() void {
     mpdSendIdle();
 }
 
+/// One bar per display. Without this a second start (WM restart, manual launch,
+/// or a leftover instance) races the first one's XStoreName calls, so the root
+/// name can flip between two different verdicts — and one of them can be stale.
+/// The lock is per $DISPLAY and lives in the state dir; its fd stays open for
+/// the process lifetime and the kernel releases it on exit/panic.
+var instance_lock_fd: c_int = -1;
+
+fn readLockPid(fd: c_int) c.pid_t {
+    var buf: [32]u8 = undefined;
+    _ = c.lseek(fd, 0, c.SEEK_SET);
+    const n = c.read(fd, &buf, buf.len);
+    if (n <= 0) return 0;
+    const s = std.mem.trim(u8, buf[0..@intCast(n)], " \t\r\n");
+    return std.fmt.parseInt(c.pid_t, s, 10) catch 0;
+}
+
+/// Confirm the PID in the lock file is really a zlstatus before signalling it;
+/// PIDs are reused and `kill` must never hit an unrelated process.
+fn pidLooksLikeZlstatus(pid: c.pid_t) bool {
+    var pathbuf: [64]u8 = undefined;
+    const path = std.fmt.bufPrint(&pathbuf, "/proc/{d}/comm", .{pid}) catch return false;
+    if (path.len >= pathbuf.len) return false;
+    pathbuf[path.len] = 0;
+    const fd = c.open(@ptrCast(&pathbuf), c.O_RDONLY);
+    if (fd < 0) return false;
+    defer _ = c.close(fd);
+    var buf: [32]u8 = undefined;
+    const n = c.read(fd, &buf, buf.len);
+    if (n <= 0) return false;
+    return std.mem.startsWith(u8, buf[0..@intCast(n)], "zlstatus");
+}
+
+fn singleInstanceInit() bool {
+    const home_z = c.getenv("HOME") orelse return true;
+    const home = std.mem.span(home_z);
+
+    var dirbuf: [256]u8 = undefined;
+    const local = std.fmt.bufPrint(&dirbuf, "{s}/.local", .{home}) catch return true;
+    mkdirp(local);
+    const state = std.fmt.bufPrint(&dirbuf, "{s}/.local/state", .{home}) catch return true;
+    mkdirp(state);
+    const dir = std.fmt.bufPrint(&dirbuf, "{s}/.local/state/zlstatus", .{home}) catch return true;
+    mkdirp(dir);
+
+    const display_z = c.getenv("DISPLAY");
+    const raw_display: []const u8 = if (display_z != null) std.mem.span(display_z) else "wayland";
+    // :0 and :0.0 are the same root window; normalise the screen suffix so they
+    // cannot each start a bar.
+    const display = if (std.mem.indexOfScalar(u8, raw_display, '.')) |dot|
+        raw_display[0..dot]
+    else
+        raw_display;
+    var namebuf: [64]u8 = undefined;
+    var n: usize = 0;
+    for (display) |ch| {
+        if (n >= namebuf.len) break;
+        namebuf[n] = if (std.ascii.isAlphanumeric(ch)) ch else '_';
+        n += 1;
+    }
+    if (n == 0) {
+        @memcpy(namebuf[0..7], "default");
+        n = 7;
+    }
+
+    var pathbuf: [320]u8 = undefined;
+    const path = std.fmt.bufPrint(&pathbuf, "{s}/instance-{s}.lock", .{ dir, namebuf[0..n] }) catch return true;
+    if (path.len >= pathbuf.len) return true;
+    pathbuf[path.len] = 0;
+
+    instance_lock_fd = c.open(@ptrCast(&pathbuf), c.O_RDWR | c.O_CREAT, @as(c.mode_t, 0o644));
+    if (instance_lock_fd < 0) return true; // never make a bad lock path fatal
+
+    var locked = c.flock(instance_lock_fd, c.LOCK_EX | c.LOCK_NB) == 0;
+    if (!locked) {
+        // Last start wins: a WM restart or a leftover bar from an earlier
+        // session must not race this one on the same root window. Terminate
+        // the verified holder, then wait briefly for it to release the lock.
+        const old = readLockPid(instance_lock_fd);
+        if (old > 1 and old != c.getpid() and pidLooksLikeZlstatus(old))
+            _ = c.kill(old, c.SIGTERM);
+        var tries: usize = 0;
+        while (tries < 40) : (tries += 1) {
+            if (c.flock(instance_lock_fd, c.LOCK_EX | c.LOCK_NB) == 0) {
+                locked = true;
+                break;
+            }
+            _ = c.usleep(10_000);
+        }
+    }
+    if (!locked) {
+        _ = c.close(instance_lock_fd);
+        instance_lock_fd = -1;
+        return false;
+    }
+
+    // Publish our PID so the next start can replace us cleanly.
+    _ = c.ftruncate(instance_lock_fd, 0);
+    _ = c.lseek(instance_lock_fd, 0, c.SEEK_SET);
+    var pidbuf: [32]u8 = undefined;
+    const pid = std.fmt.bufPrint(&pidbuf, "{d}\n", .{c.getpid()}) catch "";
+    if (pid.len > 0) _ = c.write(instance_lock_fd, pid.ptr, pid.len);
+    return true;
+}
+
 pub fn main() u8 {
-    if (comptime @hasDecl(Out, "init")) Out.init();
-    defer if (comptime @hasDecl(Out, "deinit")) Out.deinit();
+    if (!singleInstanceInit()) {
+        _ = c.fprintf(c.stderr, "zlstatus: another instance already owns this display\n");
+        return 1;
+    }
+
+    Out.init();
+    defer Out.deinit();
 
     const epollfd: c_int = c.epoll_create1(0);
     if (epollfd < 0) @panic("epoll_create1");
@@ -1142,7 +1456,9 @@ pub fn main() u8 {
     if (c.setlocale(c.LC_TIME, "") == null)
         @panic("setlocale");
 
-    timerfd = c.timerfd_create(c.CLOCK_MONOTONIC, 0);
+    // BOOTTIME so the date/battery tick and the suspend/resume check run
+    // immediately on wake, not one paused interval later.
+    timerfd = c.timerfd_create(c.CLOCK_BOOTTIME, 0);
     if (timerfd < 0) @panic("timerfd_create");
     defer _ = c.close(timerfd);
 
@@ -1187,6 +1503,10 @@ pub fn main() u8 {
         if (bsfd >= 0) readBatStatus();
         break;
     }
+    defer {
+        if (bcfd >= 0) _ = c.close(bcfd);
+        if (bsfd >= 0) _ = c.close(bsfd);
+    }
 
     // ALSA
     if (c.snd_mixer_open(&mixer, 0) < 0 or
@@ -1220,24 +1540,11 @@ pub fn main() u8 {
     if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, alsafd.fd, &event) < 0)
         @panic("epoll_ctl");
 
-    // Probe timer for the reachability check: fast retry while the last verdict
-    // was unhealthy (~PROBE_RETRY_SEC) and slow heartbeat while it was healthy
-    // (~PROBE_HEARTBEAT_SEC — see probeSchedule). Created before netInit()
-    // because netInit arms it and may start/complete the first probe.
-    probe_timerfd = c.timerfd_create(c.CLOCK_MONOTONIC, c.TFD_NONBLOCK);
-    if (probe_timerfd < 0) @panic("timerfd_create probe");
-    defer _ = c.close(probe_timerfd);
-    event = c.epoll_event{
-        .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
-        .data = .{ .u64 = @intFromEnum(Event.ProbeRetry) },
-    };
-    if (c.epoll_ctl(epollfd, c.EPOLL_CTL_ADD, probe_timerfd, &event) < 0)
-        @panic("epoll_ctl probe");
-
     // Network status (rtnetlink group socket, event-driven) + resolv.conf
-    // watcher (inotify) - both non-fatal
+    // watcher (inotify) plus the adaptive, non-blocking internet check.
     netInit();
     dnsInit();
+    probeInit();
 
     // Charger plug/unplug uevents (power_supply class) - non-fatal
     ueventInit();
@@ -1278,9 +1585,9 @@ const Event = enum(u8) {
     MpdEvent,
     NetChange,
     DnsChange,
-    ProbeDone,
-    ProbeRetry,
     Uevent,
+    ProbeSocket,
+    ProbeTimer,
 
     fn handleTimeout1m() void {
         readTime();
@@ -1289,9 +1596,20 @@ const Event = enum(u8) {
         _ = c.read(timerfd, &exp_count, @sizeOf(u64));
         readBatCapacity();
         readBatStatus();
-        // Network is event-driven (netlink + inotify + probe). The only
-        // periodic network work is the probe heartbeat/self-heal below.
-        probeTick();
+
+        // The network block itself is event-driven and never polled. The one
+        // exception is suspend/resume: CLOCK_BOOTTIME keeps counting through
+        // sleep, so a gap much larger than this 60s tick proves the machine
+        // was suspended and kernel route events may have been missed. Refresh
+        // once here; that is a recovery step on an existing wakeup, not a
+        // periodic network poll.
+        const now = bootSec();
+        if (last_monotonic > 0 and now - last_monotonic > 120) {
+            netLog("resume detected (gap {d}s), refreshing network status", .{now - last_monotonic});
+            netRefresh();
+        }
+        last_monotonic = now;
+
         // Retry MPD connection if it dropped (e.g. mpd wasn't running at startup)
         if (mpdfd < 0) mpdConnect();
     }
@@ -1312,18 +1630,6 @@ const Event = enum(u8) {
         dnsHandleEvent();
     }
 
-    fn handleProbeDone() void {
-        probeFinish(false);
-    }
-
-    fn handleProbeRetry() void {
-        // Consume the expiration. Auto-repeating while scheduled, so there may
-        // be more than one pending; one read resets the count.
-        var exp: u64 = undefined;
-        _ = c.read(probe_timerfd, &exp, @sizeOf(u64));
-        probeTick();
-    }
-
     fn handleUevent() void {
         ueventHandle();
     }
@@ -1335,10 +1641,9 @@ const Event = enum(u8) {
             .MpdEvent => handleMpdEvent(),
             .NetChange => handleNetChange(),
             .DnsChange => handleDnsChange(),
-            .ProbeDone => handleProbeDone(),
-            .ProbeRetry => handleProbeRetry(),
             .Uevent => handleUevent(),
+            .ProbeSocket => probeSocketHandle(),
+            .ProbeTimer => probeTimerHandle(),
         }
     }
 };
-

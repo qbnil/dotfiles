@@ -80,10 +80,31 @@ case "${DOTFILES_VM:-auto}" in
     *) if [ "$VM_TYPE" != "none" ]; then IS_VM=true; else IS_VM=false; fi ;;
 esac
 
+# ----------------------------------------------------------------------------
+# GPU detection (display controllers only: VGA 0x0300, 3D 0x0302)
+# Reads /sys directly so it works before pciutils is installed.
+# ----------------------------------------------------------------------------
+HAS_NVIDIA=false
+HAS_AMD=false
+for dev in /sys/bus/pci/devices/*; do
+    read -r dev_class < "$dev/class" 2>/dev/null || continue
+    case "$dev_class" in
+        0x0300*|0x0302*) ;;
+        *) continue ;;
+    esac
+    read -r dev_vendor < "$dev/vendor" 2>/dev/null || continue
+    case "$dev_vendor" in
+        0x10de) HAS_NVIDIA=true ;;
+        0x1002) HAS_AMD=true ;;
+    esac
+done
+
 if $IS_VM; then
     print_warning "Virtual machine detected ($VM_TYPE): skipping NVIDIA/GPU-specific packages and the NVIDIA suspend fix"
 else
     print_status "Running on real hardware"
+    if $HAS_NVIDIA; then print_success "NVIDIA GPU detected"; fi
+    if $HAS_AMD; then print_warning "AMD GPU detected: skipping NVIDIA-only system files and hook"; fi
 fi
 
 # Packages that make no sense (or break) inside a VM
@@ -569,7 +590,7 @@ if [ -d "$DOTFILES_DIR/systemd/etc" ]; then
     print_status "Installing systemd configuration files..."
     if $IS_VM; then
         print_warning "Running in VM - skipping NVIDIA-specific systemd files"
-    else
+    elif $HAS_NVIDIA && ! $HAS_AMD; then
         # Install /etc files for NVIDIA suspend fix on real hardware
         if [ -d "$DOTFILES_DIR/systemd/etc/modprobe.d" ]; then
             sudo cp -r "$DOTFILES_DIR/systemd/etc/modprobe.d/"* /etc/modprobe.d/ 2>/dev/null || true
@@ -580,6 +601,18 @@ if [ -d "$DOTFILES_DIR/systemd/etc" ]; then
             sudo systemctl daemon-reload
             print_success "Installed systemd services"
         fi
+        # Warn after an nvidia-utils/dkms upgrade if the loaded kernel module
+        # no longer matches userspace (otherwise Xorg dies with "no screens found").
+        if [ -d "$DOTFILES_DIR/systemd/etc/pacman.d/hooks" ]; then
+            sudo install -d /etc/pacman.d/hooks
+            sudo install -Dm755 "$DOTFILES_DIR/systemd/etc/pacman.d/hooks/nvidia-mismatch-check" \
+                /etc/pacman.d/hooks/nvidia-mismatch-check
+            sudo install -Dm644 "$DOTFILES_DIR/systemd/etc/pacman.d/hooks/nvidia-mismatch-check.hook" \
+                /etc/pacman.d/hooks/nvidia-mismatch-check.hook
+            print_success "Installed NVIDIA reboot-check pacman hook"
+        fi
+    else
+        print_warning "No NVIDIA GPU (or AMD GPU present) - skipping NVIDIA-only system files and hook"
     fi
 fi
 

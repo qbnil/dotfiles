@@ -1,0 +1,16 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = nvidia-utils
+Target = nvidia
+Target = nvidia-dkms
+Target = nvidia-open
+Target = nvidia-open-dkms
+Target = nvidia-lts
+Target = nvidia-open-lts
+
+[Action]
+Description = Checking NVIDIA userspace/kernel module versions...
+When = PostTransaction
+Exec = /etc/pacman.d/hooks/nvidia-mismatch-check

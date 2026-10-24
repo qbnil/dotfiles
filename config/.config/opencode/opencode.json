@@ -12,6 +12,7 @@
       "models": {
         "opencode-go/gpt-5.6-luna": {
           "name": "GPT-5.6 Luna",
+          "package": "@opencode/ai/providers/openai-compatible/responses",
           "capabilities": {
             "tools": true,
             "input": [

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """vxpanel - flat, lightweight floating control panel for dwm-style X11 setups (GTK3 + pywal).
-Usage: vxpanel [--page display|colors|theme|audio|input|notify|system|docker]
+Usage: vxpanel [--page display|colors|theme|audio|input|notify|system|network|logs|docker|disk]
 Changes that X forgets on restart are saved to ~/.config/vxpanel/startup.sh - run it from your autostart.
 
 Session start never runs this script: startup.sh carries a plain `redshift -O`
@@ -93,7 +93,7 @@ def persist_nightlight():
 # needs them, and at session start they used to cost ~0.3s of visible
 # bright-neutral screen before the night light landed.
 import ctypes, ctypes.util
-import re, shlex, configparser, threading, time
+import re, shlex, hashlib, configparser, threading, time, socket
 from string import Template
 import gi
 gi.require_version("Gtk", "3.0")
@@ -105,8 +105,13 @@ def status(msg):
     if WIN:
         WIN.status.set_text(msg); WIN.status.set_tooltip_text(msg)
 
-def run(cmd, ok="Done", after=None, timeout=60):
-    """Run a command in a thread, report the result in the status bar."""
+def run(cmd, ok="Done", after=None, timeout=60, always=False):
+    """Run a command in a thread, report the result in the status bar.
+
+    `always` also calls `after` on failure; used by the Tailscale controls so
+    the switch snaps back to the daemon's real state instead of waiting for
+    the next 10s tick.
+    """
     def work():
         good = False
         try:
@@ -119,7 +124,7 @@ def run(cmd, ok="Done", after=None, timeout=60):
             msg = "✗ %s" % e
         def fin():
             status(msg)
-            if good and after: after()
+            if (good or always) and after: after()
             return False
         GLib.idle_add(fin)
     threading.Thread(target=work, daemon=True).start()
@@ -954,6 +959,842 @@ def system():
     btnrow(c, btn("Open startup.sh", lambda: bg(["xdg-open", STARTUP])))
     return b
 
+# ---------------------------------------------------------------- Network
+# Live connectivity/diagnostic view. Everything here is read-only by default;
+# the buttons only touch the network when the user asks. Data collection runs
+# in a worker thread because systemctl/nmcli/tailscale can each take a moment,
+# and the page is polled only while it is the visible stack child.
+NET_TIMER = {"id": 0}
+
+SERVICE_CHIPS = [
+    ("NetworkManager", "NM"),
+    ("dhcpcd", "DHCPCD"),
+    ("systemd-networkd", "NETWORKD"),
+    ("iwd", "IWD"),
+    ("wpa_supplicant", "WPA_SUPPL"),
+    ("tailscaled", "TAILSCALE"),
+]
+
+def _nm_split(line):
+    """Split `nmcli -t` output on unescaped ':' and undo '\\:' / '\\\\'."""
+    out, cur, esc = [], [], False
+    for ch in line:
+        if esc:
+            cur.append(ch); esc = False
+        elif ch == "\\":
+            esc = True
+        elif ch == ":":
+            out.append("".join(cur)); cur = []
+        else:
+            cur.append(ch)
+    out.append("".join(cur))
+    return out
+
+def _kv(text):
+    """Parse `Key: value` / `Key:      value` output into a dict."""
+    d = {}
+    for line in text.splitlines():
+        if ":" not in line: continue
+        k, v = line.split(":", 1)
+        d.setdefault(k.strip(), v.strip())
+    return d
+
+def _read_text(path, limit=65536):
+    try:
+        with open(path, errors="replace") as f:
+            return f.read(limit)
+    except Exception:
+        return ""
+
+def _svc_state(unit):
+    """(active, enabled) for a systemd unit, safe when systemd is absent."""
+    rc, out, err = _dc(["systemctl", "is-active", unit], 3)
+    active = (out or err).strip().splitlines()[0] if (out or err).strip() else "unknown"
+    rc, out, _ = _dc(["systemctl", "is-enabled", unit], 3)
+    enabled = out.strip().splitlines()[0] if out.strip() else "unknown"
+    return active, enabled
+
+def _tcp_probe(host, port, timeout=2.5):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+def _tailscale_info():
+    """Everything the panel needs from tailscaled, without requiring jq."""
+    d = {"available": False, "backend": "absent", "online": False, "ips": [],
+         "dnsname": "", "health": [], "peers": 0, "peers_online": 0,
+         "exit_id": "", "exit_online": False, "exit_ip": "", "exit_host": "",
+         "exit_nodes": [], "version": "", "error": ""}
+    if not have("tailscale"):
+        d["error"] = "tailscale is not installed"
+        return d
+    rc, out, err = _dc(["tailscale", "status", "--json"], 10)
+    if rc != 0:
+        msg = (err or out or "tailscale status failed").strip()
+        d["error"] = (msg.splitlines() or [msg])[-1][:240]
+        return d
+    try:
+        j = json.loads(out)
+    except Exception as e:
+        d["error"] = "tailscale returned invalid JSON: %s" % e
+        return d
+    d["available"] = True
+    d["backend"] = j.get("BackendState") or "NoState"
+    d["version"] = j.get("Version") or ""
+    me = j.get("Self") or {}
+    d["online"] = bool(me.get("Online"))
+    d["ips"] = me.get("TailscaleIPs") or []
+    d["dnsname"] = (me.get("DNSName") or "").rstrip(".")
+    d["health"] = [str(x) for x in (j.get("Health") or [])]
+    peers = j.get("Peer") or {}
+    d["peers"] = len(peers)
+    d["peers_online"] = sum(1 for p in peers.values() if p.get("Online"))
+    ex = j.get("ExitNodeStatus") or {}
+    d["exit_id"] = ex.get("ID") or ""
+    d["exit_online"] = bool(ex.get("Online"))
+    d["exit_ips"] = ex.get("TailscaleIPs") or []
+    # Resolve the ID against the peer table as a fallback: `exit-node list`
+    # can be slow or fail, and the page should still name the selected node.
+    if d["exit_id"]:
+        for pid, p in peers.items():
+            if pid == d["exit_id"] or p.get("ID") == d["exit_id"]:
+                d["exit_host"] = (p.get("DNSName") or p.get("HostName") or "").rstrip(".")
+                d["exit_ip"] = next((x for x in d["exit_ips"] if "." in x), "")
+                break
+
+    # `tailscale status --json` only exposes the exit node's node ID, so ask
+    # `exit-node list` for the human IP/hostname that matches the selected row.
+    rc, out, _ = _dc(["tailscale", "exit-node", "list"], 10)
+    for line in out.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or s.startswith("IP ") or "HOSTNAME" in s:
+            continue
+        p = s.split()
+        if len(p) < 2 or p[0].count(".") != 3:
+            continue
+        node = {"ip": p[0], "host": p[1], "selected": "selected" in p}
+        d["exit_nodes"].append(node)
+        if node["selected"]:
+            d["exit_ip"], d["exit_host"] = node["ip"], node["host"]
+    return d
+
+def _net_state(probe=True, scan=False):
+    """Collect one snapshot for the page. Safe for a worker thread."""
+    d = {"services": {}, "devices": [], "active": None, "ip": {}, "route": "",
+         "dns": [], "nm_dns": [], "nm": {}, "wifi": {}, "wifi_aps": [], "dhcp": {},
+         "conn_security": {}, "ts": {}, "probe": {}, "resolv": "",
+         "nm_conf": "", "dhcp_owner": "unknown", "nm_dhcp_backend": "internal",
+         "verdict": ("CHECKING", "hot", ""), "error": None}
+
+    d["resolv"] = _read_text("/etc/resolv.conf")
+    d["nm_conf"] = _read_text("/etc/NetworkManager/NetworkManager.conf")
+
+    for name, _ in SERVICE_CHIPS:
+        d["services"][name] = _svc_state(name)
+
+    if have("nmcli"):
+        rc, out, err = _dc(["nmcli", "-t", "-f", "RUNNING,STATE,CONNECTIVITY", "general"], 6)
+        parts = _nm_split(out.strip()) if out.strip() else []
+        d["nm"] = {"running": parts[0] if len(parts) > 0 else "",
+                   "state": parts[1] if len(parts) > 1 else "",
+                   "connectivity": parts[2] if len(parts) > 2 else ""}
+        rc, out, err = _dc(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"], 8)
+        for line in out.splitlines():
+            p = _nm_split(line)
+            if len(p) >= 4:
+                d["devices"].append({"device": p[0], "type": p[1],
+                                     "state": p[2], "connection": p[3]})
+        skip = ("tailscale", "docker", "virbr", "lo")
+        for dev in d["devices"]:
+            if dev["type"] in ("wifi", "ethernet") and dev["state"].startswith("connected") \
+               and not dev["device"].startswith(skip):
+                d["active"] = dev
+                break
+
+    rc, out, _ = _dc(["ip", "-brief", "-4", "addr", "show"], 6)
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) >= 3:
+            d["ip"][p[0]] = p[2:]
+    rc, out, _ = _dc(["ip", "-4", "route", "show", "default"], 6)
+    d["route"] = out.strip()
+    d["dns"] = [l.split()[1] for l in d["resolv"].splitlines()
+                if l.strip().lower().startswith("nameserver") and len(l.split()) > 1]
+
+    # NetworkManager may not be the one managing the link (dhcpcd, networkd,
+    # iwd). Fall back to the device that carries the default route so the page
+    # still shows an interface instead of claiming there is no network.
+    if d["active"] is None and d["route"]:
+        m = re.search(r"\bdev\s+(\S+)", d["route"])
+        if m:
+            dev = m.group(1)
+            wifi = os.path.exists("/sys/class/net/%s/wireless" % dev)
+            d["active"] = {"device": dev, "type": "wifi" if wifi else "ethernet",
+                           "state": "up (not managed by NetworkManager)",
+                           "connection": ""}
+
+    if d["active"] and have("nmcli"):
+        dev = d["active"]["device"]
+        rc, out, _ = _dc(["nmcli", "device", "show", dev], 10)
+        d["iface_detail"] = _kv(out)
+        d["nm_dns"] = [l.split(":", 1)[1].strip() for l in out.splitlines()
+                       if l.strip().startswith("IP4.DNS")]
+        name = d["active"]["connection"]
+        if name:
+            # The lease lives on the connection, not on `device show` (NM's
+            # internal DHCP client keeps it there).
+            rc, out, _ = _dc(["nmcli", "-f", "DHCP4", "connection", "show", name], 6)
+            for line in out.splitlines():
+                if "DHCP4.OPTION" in line and " = " in line:
+                    k, v = line.split(":", 1)[1].strip().split(" = ", 1)
+                    d["dhcp"][k] = v
+            rc, out, _ = _dc(["nmcli", "-f",
+                              "802-11-wireless-security.key-mgmt,802-11-wireless-security.pmf",
+                              "connection", "show", name], 6)
+            d["conn_security"] = _kv(out)
+
+    if have("nmcli"):
+        cmd = ["nmcli", "-t", "-f", "IN-USE,SSID,BSSID,CHAN,FREQ,RATE,SIGNAL,SECURITY",
+               "device", "wifi", "list", "--rescan", "yes" if scan else "no"]
+        rc, out, _ = _dc(cmd, 25 if scan else 8)
+        for line in out.splitlines():
+            p = _nm_split(line)
+            if len(p) >= 8 and p[1]:
+                d["wifi_aps"].append({"in_use": p[0].strip() == "*", "ssid": p[1],
+                                      "bssid": p[2], "chan": p[3], "freq": p[4],
+                                      "rate": p[5], "signal": p[6], "security": p[7]})
+        d["wifi"] = next((a for a in d["wifi_aps"] if a["in_use"]), {})
+
+    # Who is actually running DHCP? NetworkManager's own backend can be
+    # internal, dhcpcd or systemd-networkd; show that rather than guessing.
+    m = re.search(r"^\s*dhcp\s*=\s*(\w+)", d["nm_conf"], re.M)
+    if m:
+        d["nm_dhcp_backend"] = m.group(1)
+    if d["services"].get("NetworkManager", ("", ""))[0] == "active":
+        d["dhcp_owner"] = "NetworkManager (%s)" % d["nm_dhcp_backend"]
+    elif d["services"].get("dhcpcd", ("", ""))[0] == "active":
+        d["dhcp_owner"] = "dhcpcd"
+    elif d["services"].get("systemd-networkd", ("", ""))[0] == "active":
+        d["dhcp_owner"] = "systemd-networkd"
+    elif d["services"].get("iwd", ("", ""))[0] == "active":
+        d["dhcp_owner"] = "iwd (no DHCP client detected)"
+
+    if probe:
+        d["probe"] = {"tcp443": _tcp_probe("1.1.1.1", 443),
+                      "tcp53": _tcp_probe("8.8.8.8", 53)}
+
+    d["ts"] = _tailscale_info()
+
+    # Verdict: distinguish "no local path" from "local path is fine but the
+    # outbound probe failed" from NetworkManager's stricter connectivity check.
+    dev = (d["active"] or {}).get("device") or ""
+    ips = d["ip"].get(dev) or []
+    local_ok = bool(d["route"]) and bool(ips)
+    tcp_ok = bool((d["probe"].get("tcp443") or (False,))[0] or
+                  (d["probe"].get("tcp53") or (False,))[0])
+    nmconn = d["nm"].get("connectivity", "")
+    if not local_ok:
+        if d["route"] and not ips:
+            d["verdict"] = ("NO INTERNET", "off", "default route exists but %s has no IPv4 address" % (dev or "the interface"))
+        elif ips and not d["route"]:
+            d["verdict"] = ("NO INTERNET", "off", "%s has an IPv4 address but no default route (DHCP/gateway problem)" % dev)
+        else:
+            d["verdict"] = ("NO INTERNET", "off", "no default route and no IPv4 address")
+    elif probe and tcp_ok:
+        detail = "TCP probe succeeded"
+        if nmconn and nmconn != "full":
+            detail += "; NetworkManager reports %s (its own check is stricter/failing)" % nmconn
+        d["verdict"] = ("CONNECTED", "on", detail)
+    elif probe:
+        d["verdict"] = ("LOCAL ONLY", "warn",
+                        "route and IPv4 are present, but TCP probes to 1.1.1.1:443 and 8.8.8.8:53 failed; "
+                        "upstream may be down or egress blocked")
+    elif nmconn == "portal":
+        d["verdict"] = ("CAPTIVE PORTAL", "warn", "NetworkManager reports a captive portal")
+    elif nmconn == "full":
+        d["verdict"] = ("CONNECTED", "on", "route and IPv4 present; NetworkManager reports full connectivity")
+    else:
+        d["verdict"] = ("LIMITED", "warn",
+                        "route and IPv4 present; NetworkManager reports %s" % (nmconn or "unknown"))
+    return d
+
+def _net_summary(d):
+    """Cheap text render of an already-collected snapshot (no subprocesses)."""
+    verdict, _, detail = d.get("verdict", ("?", "", ""))
+    dev = (d.get("active") or {}).get("device") or ""
+    ips = ", ".join(d.get("ip", {}).get(dev) or []) or "none"
+    route = d.get("route") or ""
+    gw = ((d.get("iface_detail") or {}).get("IP4.GATEWAY") or
+          (route.split(" via ")[1].split()[0] if " via " in route else "?"))
+    w = d.get("wifi") or {}
+    sec = d.get("conn_security") or {}
+    ts = d.get("ts") or {}
+    lines = [
+        "vxpanel network summary · " + time.strftime("%Y-%m-%d %H:%M:%S"),
+        "",
+        "VERDICT      %s — %s" % (verdict, detail),
+        "INTERFACE    %s (%s) · %s" % (dev or "—", (d.get("active") or {}).get("type", "—"),
+                                       (d.get("active") or {}).get("connection", "—")),
+        "IPv4         %s" % ips,
+        "GATEWAY      %s" % gw,
+        "DNS RESOLVER %s" % (", ".join(d.get("dns") or []) or "none"),
+        "DNS DHCP     %s" % (", ".join(d.get("nm_dns") or []) or "none"),
+        "DHCP         %s" % d.get("dhcp_owner", "unknown"),
+        "NM STATE     %s · connectivity=%s" % (d.get("nm", {}).get("state", "—"),
+                                                d.get("nm", {}).get("connectivity", "—")),
+        "WI-FI        %s" % (("%s · %s%% · ch %s · %s · %s" %
+                              (w.get("ssid"), w.get("signal"), w.get("chan"),
+                               w.get("freq"), w.get("rate"))) if w else "not connected"),
+        "AP BSSID     %s" % (w.get("bssid") or "—"),
+        "SECURITY     %s · key-mgmt=%s · pmf=%s" % (
+            w.get("security") or "—",
+            sec.get("802-11-wireless-security.key-mgmt", "—"),
+            sec.get("802-11-wireless-security.pmf", "—")),
+        "PROBE        " + (", ".join(
+            "%s=%s" % (k, "ok" if v[0] else "fail") for k, v in (d.get("probe") or {}).items())
+            or "not run"),
+        "TAILSCALE    %s · %s · peers %d/%d online" % (
+            ts.get("backend", "absent"), "online" if ts.get("online") else "not online",
+            ts.get("peers_online", 0), ts.get("peers", 0)),
+        "TS ADDRESS   %s" % (", ".join(ts.get("ips") or []) or "—"),
+        "TS EXIT      %s" % (("%s (%s)" % (ts.get("exit_host"), ts.get("exit_ip")))
+                             if ts.get("exit_ip") else "none"),
+        "TS HEALTH    %s" % ("; ".join(ts.get("health") or []) or "none"),
+        "",
+        "SERVICES     " + " · ".join(
+            "%s=%s/%s" % (name, d["services"].get(name, ("?", "?"))[0],
+                          d["services"].get(name, ("?", "?"))[1])
+            for name, _ in SERVICE_CHIPS),
+        "",
+        "Use “Copy report” for raw command output and journal tails.",
+    ]
+    return "\n".join(lines)
+
+def _net_report():
+    """A copy-pasteable diagnostic report, including recent journal lines."""
+    d = _net_state(probe=True)
+    out = [_net_summary(d), "", "===== RAW ====="]
+    cmds = [
+        ("nmcli general", ["nmcli", "-t", "-f", "RUNNING,STATE,CONNECTIVITY", "general"]),
+        ("nmcli connectivity", ["nmcli", "networking", "connectivity"]),
+        ("nmcli devices", ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"]),
+        ("ip address", ["ip", "-brief", "addr"]),
+        ("ip route", ["ip", "route"]),
+        ("ip rule", ["ip", "rule"]),
+        ("systemd-networkd status", ["networkctl", "status"]),
+        ("tailscale status", ["tailscale", "status"]),
+    ]
+    for title, cmd in cmds:
+        if not have(cmd[0]):
+            out += ["", "$ " + title, "(not installed)"]
+            continue
+        rc, stdout, stderr = _dc(cmd, 20)
+        out += ["", "$ " + title, (stdout or stderr).rstrip() or "(no output)"]
+    if d.get("active"):
+        dev = d["active"]["device"]
+        rc, stdout, stderr = _dc(["nmcli", "device", "show", dev], 15)
+        out += ["", "$ nmcli device show " + dev, (stdout or stderr).rstrip()]
+    out += ["", "$ /etc/resolv.conf", d.get("resolv", "").rstrip()]
+    out += ["", "$ /etc/NetworkManager/NetworkManager.conf", d.get("nm_conf", "").rstrip()]
+    # zlstatus records every verdict change here; it is the bar's own evidence
+    # trail for a no-net/no-dns/ts- episode.
+    zlog = _read_text(H + "/.local/state/zlstatus/net.log").splitlines()
+    out += ["", "$ ~/.local/state/zlstatus/net.log (last 40 lines)",
+            "\n".join(zlog[-40:]) or "(no log yet)"]
+    for unit in ("NetworkManager", "dhcpcd", "systemd-networkd", "wpa_supplicant", "iwd", "tailscaled"):
+        rc, stdout, stderr = _dc(["journalctl", "-u", unit, "-n", "30", "--no-pager"], 15)
+        text = (stdout or stderr).strip()
+        if text:
+            out += ["", "$ journalctl -u %s -n 30" % unit, text]
+    return "\n".join(out)
+
+@page("network", "Network")
+def network():
+    b = new_page("Network")
+    st = {"dead": False, "fetching": False, "data": {}, "ap_sig": None,
+          "syncing": False, "netcheck": None}
+
+    def alive(): return not st["dead"] and b.get_parent() is not None
+
+    def chip(text, kind=None):
+        w = cls(Gtk.Label(label=text, xalign=0), "chip")
+        if kind: cls(w, kind)
+        w.set_valign(Gtk.Align.CENTER)
+        return w
+
+    def set_kind(w, kind):
+        ctx = w.get_style_context()
+        for k in ("on", "off", "hot", "warn", "run", "pause", "stop", "dead"):
+            ctx.remove_class(k)
+        if kind: ctx.add_class(kind)
+
+    def value(text="—"):
+        l = Gtk.Label(label=text, xalign=1)
+        l.set_selectable(True)
+        l.set_ellipsize(Pango.EllipsizeMode.END)
+        l.set_max_width_chars(78)
+        return l
+
+    u = {}
+    def put(key, text):
+        if key in u: u[key].set_text(text or "—")
+
+    # ---------------- connectivity
+    c = card(b, "Connectivity")
+    top = Gtk.Box(spacing=9)
+    st["verdict"] = chip("CHECKING", "hot")
+    st["verdict_detail"] = cls(Gtk.Label(label="Collecting…", xalign=0), "dim")
+    st["verdict_detail"].set_line_wrap(True)
+    top.pack_start(st["verdict"], False, False, 0)
+    top.pack_start(st["verdict_detail"], True, True, 0)
+    c.pack_start(top, False, False, 0)
+    for key, label in (("iface", "Interface"), ("ip", "IPv4"), ("gw", "Gateway"),
+                       ("dns", "DNS (resolver)"), ("dns_dhcp", "DNS (DHCP)"),
+                       ("wifi", "Wi-Fi"), ("security", "Security"),
+                       ("dhcp", "DHCP lease"), ("probe", "Internet probe")):
+        u[key] = value(); row(c, label, u[key])
+
+    # ---------------- services
+    c = card(b, "Services  (who owns the link)")
+    svc_row = Gtk.Box(spacing=7)
+    svc = {}
+    for name, short in SERVICE_CHIPS:
+        w = chip(short + " —"); svc[name] = w; svc_row.pack_start(w, False, False, 0)
+    c.pack_start(svc_row, False, False, 0)
+    st["svc_note"] = cls(Gtk.Label(label="", xalign=0), "dim")
+    st["svc_note"].set_line_wrap(True)
+    c.pack_start(st["svc_note"], False, False, 0)
+    u["owner"] = value(); row(c, "DHCP client", u["owner"])
+
+    def open_log(unit):
+        if not have("st"): return status("✗ st is not installed")
+        bg(["st", "-e", "sh", "-c",
+            "journalctl -u %s -n 300 --no-pager; printf '\\nPress Enter to close…'; read _" % unit])
+
+    def restart(unit):
+        if not confirm("Restart %s now?\nThe network will drop for a few seconds." % unit): return
+        cmd = ["pkexec", "systemctl", "restart", unit] if have("pkexec") else ["systemctl", "restart", unit]
+        run(cmd, unit + " restarted", after=lambda: refresh(force=True), always=True)
+
+    btnrow(c,
+           btn("NM log", lambda: open_log("NetworkManager")),
+           btn("dhcpcd log", lambda: open_log("dhcpcd")),
+           btn("Restart NM", lambda: restart("NetworkManager")),
+           btn("Restart dhcpcd", lambda: restart("dhcpcd")))
+
+    # ---------------- tailscale
+    c = card(b, "Tailscale")
+    def ts_toggle(on):
+        if st["syncing"]: return
+        run(["tailscale", "up"] if on else ["tailscale", "down"],
+            "Tailscale up" if on else "Tailscale down",
+            after=lambda: refresh(force=True), always=True)
+    st["ts_sw"] = switch(False, ts_toggle)
+    row(c, "Connected (BackendState=Running)", st["ts_sw"])
+    for key, label in (("ts_state", "State"), ("ts_ips", "Address"),
+                       ("ts_exit", "Exit node"), ("ts_peers", "Peers"),
+                       ("ts_health", "Health")):
+        u[key] = value(); row(c, label, u[key])
+    st["exit_combo"] = combo(["none"], "none")
+    st["exit_combo"].connect("changed", lambda w: set_exit(w.get_active_text()))
+    row(c, "Use exit node", st["exit_combo"])
+
+    def set_exit(text):
+        if st["syncing"]: return
+        ip = ""
+        for n in ((st["data"].get("ts") or {}).get("exit_nodes") or []):
+            if text == n["ip"] or text == "%s  %s" % (n["ip"], n["host"]):
+                ip = n["ip"]; break
+        cmd = ["tailscale", "set", "--exit-node=" + ip] if ip else ["tailscale", "set", "--exit-node="]
+        run(cmd, "Exit node " + (ip or "cleared"),
+            after=lambda: refresh(force=True), always=True)
+
+    def netcheck():
+        status("Running tailscale netcheck…")
+        def work():
+            rc, stdout, stderr = _dc(["tailscale", "netcheck"], 45)
+            text = (stdout or stderr or "netcheck failed").strip()
+            def fin():
+                st["netcheck"] = text
+                st["report_view"].get_buffer().set_text(text)
+                status("✓ tailscale netcheck finished")
+                return False
+            GLib.idle_add(fin)
+        threading.Thread(target=work, daemon=True).start()
+
+    def copy_ts():
+        copy(sh("tailscale status"))
+
+    btnrow(c, btn("Refresh", lambda: refresh(force=True), True),
+           btn("Netcheck", netcheck), btn("Copy status", copy_ts))
+
+    # ---------------- Wi-Fi
+    c = card(b, "Wi-Fi")
+    u["wifi_now"] = value(); row(c, "Current", u["wifi_now"])
+    u["wifi_meta"] = value(); row(c, "Radio", u["wifi_meta"])
+    u["wifi_bssid"] = value(); row(c, "BSSID", u["wifi_bssid"])
+    u["wifi_sec"] = value(); row(c, "Security", u["wifi_sec"])
+    st["apbox"] = Gtk.Box(orientation=VERT, spacing=5)
+    c.pack_start(st["apbox"], False, False, 0)
+
+    def wifi_connect(ssid, security):
+        sec = (security or "").upper()
+        if not sec or sec == "OPEN" or sec.startswith("WEP"):
+            run(["nmcli", "device", "wifi", "connect", ssid],
+                "Connected to " + ssid, after=lambda: refresh(scan=True))
+            return
+        dlg = Gtk.Dialog(title="Wi-Fi password", transient_for=WIN, modal=True)
+        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        ok = dlg.add_button("Connect", Gtk.ResponseType.OK)
+        cls(ok, "suggested")
+        box = dlg.get_content_area(); box.set_border_width(16); box.set_spacing(8)
+        box.pack_start(Gtk.Label(label="Password for %s\n(%s)" % (ssid, security), xalign=0),
+                       False, False, 0)
+        ent = Gtk.Entry(); ent.set_visibility(False); ent.set_activates_default(True)
+        box.pack_start(ent, False, False, 0)
+        dlg.set_default_response(Gtk.ResponseType.OK)
+        dlg.show_all(); resp = dlg.run(); pw = ent.get_text(); dlg.destroy()
+        if resp != Gtk.ResponseType.OK: return
+        run(["nmcli", "device", "wifi", "connect", ssid, "password", pw],
+            "Connected to " + ssid, after=lambda: refresh(scan=True))
+
+    def render_aps(aps):
+        sig = tuple((a["ssid"], a["security"], a["signal"], a["in_use"]) for a in aps)
+        if sig == st["ap_sig"]: return
+        st["ap_sig"] = sig
+        for ch in st["apbox"].get_children():
+            st["apbox"].remove(ch)
+        for a in aps[:14]:
+            line = Gtk.Box(spacing=9)
+            name = ("● " if a["in_use"] else "   ") + a["ssid"]
+            line.pack_start(Gtk.Label(label=name, xalign=0), True, True, 0)
+            line.pack_start(chip(a["security"] or "OPEN"), False, False, 0)
+            line.pack_start(Gtk.Label(label=(a["signal"] or "?") + "%", xalign=1), False, False, 0)
+            if not a["in_use"]:
+                x = btn("Connect", lambda _w=None, a=a: wifi_connect(a["ssid"], a["security"]))
+                cls(x, "sm")
+                line.pack_end(x, False, False, 0)
+            st["apbox"].pack_start(line, False, False, 0)
+        st["apbox"].show_all()
+
+    btnrow(c, btn("Scan", lambda: refresh(scan=True), True))
+
+    # ---------------- diagnostics
+    c = card(b, "Diagnostics")
+    st["report_view"] = Gtk.TextView()
+    st["report_view"].set_editable(False)
+    st["report_view"].set_cursor_visible(False)
+    st["report_view"].set_monospace(True)
+    st["report_view"].set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    sw = Gtk.ScrolledWindow()
+    sw.set_min_content_height(170)
+    sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    sw.add(st["report_view"])
+    c.pack_start(sw, False, False, 0)
+
+    def copy_report():
+        status("Collecting network diagnostics…")
+        def work():
+            text = _net_report()
+            GLib.idle_add(lambda: (copy(text), False)[1])
+        threading.Thread(target=work, daemon=True).start()
+
+    btnrow(c, btn("Copy report", copy_report, True),
+           btn("Refresh now", lambda: refresh(force=True)))
+
+    # ---------------- refresh engine
+    def apply(d):
+        st["fetching"] = False
+        if not alive(): return False
+        st["data"] = d
+
+        verdict, kind, detail = d["verdict"]
+        st["verdict"].set_text(verdict); set_kind(st["verdict"], kind)
+        st["verdict_detail"].set_text(detail)
+
+        act = d.get("active") or {}
+        dev = act.get("device") or ""
+        ips = d["ip"].get(dev) or []
+        put("iface", "%s%s" % (dev or "—", (" · " + act["connection"]) if act.get("connection") else ""))
+        put("ip", ", ".join(ips) or "none")
+        if " via " in (d.get("route") or ""):
+            put("gw", d["route"].split(" via ")[1].split()[0])
+        else:
+            put("gw", (d.get("iface_detail") or {}).get("IP4.GATEWAY", "—"))
+        put("dns", ", ".join(d.get("dns") or []) or "none")
+        put("dns_dhcp", ", ".join(d.get("nm_dns") or []) or "none reported")
+        put("owner", d.get("dhcp_owner", "unknown"))
+
+        w = d.get("wifi") or {}
+        sec = d.get("conn_security") or {}
+        if w:
+            put("wifi", "%s · %s%% · ch %s · %s · %s" %
+                (w.get("ssid"), w.get("signal"), w.get("chan"), w.get("freq"), w.get("rate")))
+            put("wifi_now", w.get("ssid", "—"))
+            put("wifi_meta", "signal %s%% · ch %s · %s · %s" %
+                (w.get("signal"), w.get("chan"), w.get("freq"), w.get("rate")))
+            put("wifi_bssid", w.get("bssid") or "—")
+            secline = "%s · %s · PMF %s" % (
+                w.get("security") or "—",
+                sec.get("802-11-wireless-security.key-mgmt", "—"),
+                sec.get("802-11-wireless-security.pmf", "—"))
+            put("security", secline)
+            put("wifi_sec", secline)
+        else:
+            put("wifi", "not connected")
+            put("wifi_now", "—")
+            put("wifi_meta", "—")
+            put("wifi_bssid", "—")
+            put("security", "—")
+            put("wifi_sec", "—")
+
+        dh = d.get("dhcp") or {}
+        if dh:
+            expiry = dh.get("expiry")
+            try:
+                expiry = time.strftime("%Y-%m-%d %H:%M", time.localtime(int(expiry))) if expiry else "unknown"
+            except Exception:
+                expiry = "unknown"
+            put("dhcp", "server %s · lease expires %s" %
+                (dh.get("dhcp_server_identifier", "?"), expiry))
+        else:
+            put("dhcp", "none reported (static address or another DHCP client)")
+
+        probe = d.get("probe") or {}
+        bits = []
+        for key, label in (("tcp443", "1.1.1.1:443"), ("tcp53", "8.8.8.8:53")):
+            ok, err = probe.get(key, (None, ""))
+            bits.append("%s %s" % (label, "ok" if ok else ("failed (%s)" % err if err else "not run")))
+        put("probe", " · ".join(bits))
+
+        for name, short in SERVICE_CHIPS:
+            active, enabled = d["services"].get(name, ("unknown", "unknown"))
+            w = svc[name]
+            w.set_text("%s %s" % (short, active.upper()))
+            set_kind(w, "run" if active == "active" else
+                        "warn" if active in ("activating", "reloading", "deactivating") else
+                        "dead" if active == "failed" else "stop")
+            w.set_tooltip_text("%s: %s, %s" % (name, active, enabled))
+        active_svcs = [n for n, (a, _) in d["services"].items() if a == "active"]
+        st["svc_note"].set_text(
+            "Active: %s\nDHCP: %s · NetworkManager connectivity=%s · NM dhcp backend=%s" %
+            (", ".join(active_svcs) or "none", d.get("dhcp_owner", "unknown"),
+             d.get("nm", {}).get("connectivity", "—"), d.get("nm_dhcp_backend", "internal")))
+
+        ts = d.get("ts") or {}
+        running = ts.get("backend") == "Running"
+        st["syncing"] = True
+        st["ts_sw"].set_active(running)
+        st["syncing"] = False
+        put("ts_state", "%s%s" % (ts.get("backend", "absent"),
+                                  " · online" if ts.get("online") else " · not online"))
+        put("ts_ips", ", ".join(ts.get("ips") or []) or "—")
+        if ts.get("exit_ip"):
+            put("ts_exit", "%s (%s)%s" % (ts.get("exit_host"), ts.get("exit_ip"),
+                                          "" if ts.get("exit_online") else " · offline"))
+        else:
+            put("ts_exit", "none")
+        put("ts_peers", "%d online / %d known" % (ts.get("peers_online", 0), ts.get("peers", 0)))
+        health = "; ".join(ts.get("health") or [])
+        put("ts_health", health or ts.get("error") or "none")
+        if not ts.get("available"):
+            set_kind(st["ts_sw"], "stop")
+        else:
+            set_kind(st["ts_sw"], "on" if running and ts.get("online") else
+                     "warn" if running else "stop")
+
+        nodes = ts.get("exit_nodes") or []
+        st["syncing"] = True
+        st["exit_combo"].remove_all()
+        st["exit_combo"].append_text("none")
+        for n in nodes:
+            st["exit_combo"].append_text("%s  %s" % (n["ip"], n["host"]))
+        target = "%s  %s" % (ts.get("exit_ip"), ts.get("exit_host")) if ts.get("exit_ip") else "none"
+        idx = 0
+        model = st["exit_combo"].get_model()
+        for i in range(len(model)):
+            if model[i][0] == target:
+                idx = i; break
+        st["exit_combo"].set_active(idx)
+        st["syncing"] = False
+
+        render_aps(d.get("wifi_aps") or [])
+        if st["netcheck"] is None:
+            st["report_view"].get_buffer().set_text(_net_summary(d))
+        return False
+
+    def refresh(force=False, scan=False):
+        # A manual refresh (or an action that changes the link) returns the
+        # diagnostics box to the summary; the 10s tick must not, or a netcheck
+        # result would disappear seconds after it appeared.
+        if force or scan:
+            st["netcheck"] = None
+        if not alive() or st["fetching"]: return
+        st["fetching"] = True
+        def work():
+            try:
+                d = _net_state(probe=True, scan=scan)
+            except Exception as e:
+                d = {"verdict": ("ERROR", "dead", str(e)), "services": {}, "ip": {},
+                     "route": "", "dns": [], "nm": {}, "wifi": {}, "wifi_aps": [],
+                     "dhcp": {}, "conn_security": {}, "ts": {}, "probe": {},
+                     "resolv": "", "nm_conf": "", "dhcp_owner": "unknown",
+                     "nm_dhcp_backend": "internal", "active": None, "devices": []}
+            GLib.idle_add(apply, d)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def tick():
+        if not alive(): return False
+        if WIN and WIN.stack.get_visible_child_name() == "network":
+            refresh()
+        return True
+
+    if NET_TIMER["id"] and GLib.MainContext.default().find_source_by_id(NET_TIMER["id"]):
+        GLib.source_remove(NET_TIMER["id"])
+    NET_TIMER["id"] = GLib.timeout_add(10000, tick)
+    b.connect("destroy", lambda _w: st.update(dead=True))
+    GLib.timeout_add(60, lambda: (refresh(force=True), False)[1])
+    return b
+
+
+# ---------------------------------------------------------------- Logs
+@page("logs", "Logs")
+def logs():
+    """Unified journal viewer. Collection runs off the GTK thread; rendering is
+    filtered locally so typing/searching never starts another journal query."""
+    b = new_page("Logs")
+    st = {"dead": False, "rows": [], "source": "all", "query": "", "since": "boot"}
+
+    sources = {
+        "all": ("All system logs", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "kernel": ("Kernel / drivers", ["journalctl", "-k", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "boot": ("Boot / firmware / BIOS", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "gpu": ("GPU / NVIDIA / DRM", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "cpu": ("CPU / system", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "tailscale": ("Tailscale", ["journalctl", "-u", "tailscaled", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "docker": ("Docker / containers", ["journalctl", "-u", "docker", "-u", "containerd", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "network": ("Network / DNS", ["journalctl", "-u", "NetworkManager", "-u", "systemd-resolved", "-u", "iwd", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "xorg": ("Xorg / desktop", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "zlstatus": ("zlstatus", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        "user": ("User services", ["journalctl", "--user", "-b", "0", "-o", "short-iso", "--no-pager"]),
+    }
+    keywords = {
+        "gpu": r"nvidia|nvrm|drm|gpu|amdgpu|mesa|cuda|vulkan",
+        "cpu": r"cpu|thermal|microcode|oom|memory|segfault|watchdog|hardware error",
+        "boot": r"efi|firmware|bios|uefi|acpi|microcode|boot|initramfs|secure boot",
+        "xorg": r"xorg|x11|vxwm|xinit|xserver|compositor|xcompmgr|dunst",
+        "zlstatus": r"zlstatus",
+    }
+
+    top = Gtk.Box(spacing=7)
+    source = Gtk.ComboBoxText()
+    for key, (label, _cmd) in sources.items(): source.append(key, label)
+    source.set_active_id("all")
+    source.set_tooltip_text("Choose a log source")
+    search = Gtk.SearchEntry(); search.set_placeholder_text("Search logs…"); search.set_width_chars(24)
+    since = Gtk.ComboBoxText()
+    for key, label in (("boot", "Current boot"), ("today", "Today"), ("all", "All available")):
+        since.append(key, label)
+    since.set_active_id("boot")
+    refresh_btn = btn("Refresh", lambda: fetch(), True); cls(refresh_btn, "sm")
+    copy_btn = btn("Copy visible", lambda: copy_visible(), False); cls(copy_btn, "sm")
+    top.pack_start(source, False, False, 0); top.pack_start(since, False, False, 0)
+    top.pack_start(search, True, True, 0); top.pack_start(refresh_btn, False, False, 0); top.pack_start(copy_btn, False, False, 0)
+    b.pack_start(top, False, False, 0)
+
+    info = Gtk.Label(label="Loading logs…", xalign=0); cls(info, "dim"); b.pack_start(info, False, False, 0)
+    text = Gtk.TextView(); text.set_editable(False); text.set_cursor_visible(False); text.set_monospace(True); text.set_wrap_mode(Gtk.WrapMode.NONE)
+    text.set_left_margin(8); text.set_right_margin(8); text.set_top_margin(6); text.set_bottom_margin(6)
+    text.get_style_context().add_class("logview")
+    buf = text.get_buffer()
+    tags = {
+        "error": buf.create_tag("log-error", foreground="#ff6b81", weight=Pango.Weight.BOLD),
+        "warn": buf.create_tag("log-warn", foreground="#f5c76b"),
+        "info": buf.create_tag("log-info", foreground="#a9d6ff"),
+        "debug": buf.create_tag("log-debug", foreground="#8b93a7"),
+        "source": buf.create_tag("log-source", foreground="#c7a6ff"),
+    }
+    scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC); scroll.add(text)
+    b.pack_start(scroll, True, True, 0)
+
+    def alive(): return not st["dead"] and b.get_parent() is not None
+    def classify(line):
+        x = line.lower()
+        if any(k in x for k in (" emergency", " alert", " critical", " crit", " error", " failed", " failure", " panic", " oops", " timeout", " oom")):
+            return "error"
+        if any(k in x for k in (" warning", " warn", " degraded", " retry", " denied", " obsolete")):
+            return "warn"
+        if any(k in x for k in (" debug", " trace")): return "debug"
+        return "info"
+    def visible_rows():
+        q = st["query"].strip().lower()
+        key = st["source"]
+        rows = st["rows"]
+        if key in keywords:
+            import re as _re
+            rx = _re.compile(keywords[key], _re.I)
+            rows = [x for x in rows if rx.search(x)]
+        if q: rows = [x for x in rows if q in x.lower()]
+        return rows
+    def render():
+        if not alive(): return
+        rows = visible_rows()
+        buf.set_text("")
+        it = buf.get_end_iter()
+        for line in rows:
+            tag = tags[classify(line)]
+            buf.insert_with_tags(it, line + "\n", tag)
+        info.set_text("%d shown / %d loaded  •  %s" % (len(rows), len(st["rows"]), sources[st["source"]][0]))
+        # Keep the most recent entries visible after refresh, but let the user
+        # scroll/search without jumping on every keystroke.
+        GLib.idle_add(lambda: (scroll.get_vadjustment().set_value(scroll.get_vadjustment().get_upper()), False)[1] if not st.get("user_scrolled") else False)
+    def worker(cmd, source_key, since_key):
+        c = list(cmd)
+        if since_key == "today": c[2:2] = ["--since", "today"]
+        elif since_key == "all":
+            c = [x for x in c if x not in ("-b", "0")]
+        try:
+            r = subprocess.run(c, capture_output=True, text=True, errors="replace", timeout=20)
+            data = r.stdout.splitlines()
+            # Keyword sources are narrowed in Python because the journal query
+            # remains portable and useful even when unit names differ.
+            if source_key in keywords:
+                import re as _re
+                rx = _re.compile(keywords[source_key], _re.I)
+                data = [x for x in data if rx.search(x)]
+            return data[-12000:], r.returncode, r.stderr.strip()
+        except Exception as e:
+            return [], 1, str(e)
+    def fetch():
+        if not alive(): return
+        key, sk = st["source"], st["since"]
+        source.set_sensitive(False); refresh_btn.set_sensitive(False); info.set_text("Loading %s…" % sources[key][0])
+        def work():
+            rows, rc, err = worker(sources[key][1], key, sk)
+            def apply():
+                source.set_sensitive(True); refresh_btn.set_sensitive(True)
+                if not alive(): return False
+                st["rows"] = rows
+                if rc and not rows: info.set_text("Log query failed: " + (err or "journalctl failed"))
+                render(); return False
+            GLib.idle_add(apply)
+        threading.Thread(target=work, daemon=True).start()
+    def source_changed(w):
+        st["source"] = w.get_active_id() or "all"; fetch()
+    def since_changed(w):
+        st["since"] = w.get_active_id() or "boot"; fetch()
+    def search_changed(w):
+        st["query"] = w.get_text(); render()
+    def copy_visible():
+        copy("\n".join(visible_rows())); status("✓ visible logs copied")
+    source.connect("changed", source_changed); since.connect("changed", since_changed); search.connect("search-changed", search_changed)
+    b.connect("destroy", lambda _w: st.update(dead=True))
+    GLib.timeout_add(5000, lambda: (fetch(), True)[1] if alive() else False)
+    fetch()
+    return b
 # ---------------------------------------------------------------- Docker
 # Live container list + disk usage + prune actions. Docker is polled only while
 # this page is on screen, and rows are rebuilt only when something changed, so
@@ -966,7 +1807,8 @@ def _dc(cmd, timeout=60):
         r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
         return r.returncode, r.stdout.strip(), r.stderr.strip()
     except FileNotFoundError:
-        return 127, "", "docker is not installed"
+        name = cmd[0] if isinstance(cmd, list) else str(cmd).split()[0]
+        return 127, "", "%s is not installed" % name
     except subprocess.TimeoutExpired:
         return 124, "", "docker timed out"
     except Exception as e:
@@ -1074,9 +1916,13 @@ def docker():
     line.pack_start(Gtk.Box(), True, True, 0)
     st["updated"] = cls(Gtk.Label(label="waiting…", xalign=0), "dim")
     line.pack_end(st["updated"], False, False, 0)
+    def manual_refresh():
+        st["acted"] = 0
+        status("Refreshing docker…")
+        refresh(True)
     ref = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
     cls(ref, "sm"); ref.set_tooltip_text("Refresh now")
-    ref.connect("clicked", lambda _w: refresh(True))
+    ref.connect("clicked", lambda _w: manual_refresh())
     line.pack_end(ref, False, False, 0)
     c.pack_start(line, False, False, 0)
 
@@ -1094,7 +1940,9 @@ def docker():
         fb = Gtk.ToggleButton(label=text)
         cls(fb, "sm")
         fb.set_active(key == "all")
-        fb.connect("clicked", lambda _w, k=key: set_filter(k))
+        # "clicked" fires before GTK flips the toggle (its class handler runs
+        # last and would undo set_active), so drive everything from "toggled".
+        fb.connect("toggled", lambda w, k=key: filter_toggled(w, k))
         fbtns[key] = fb
         fbox.pack_start(fb, False, False, 0)
     head.pack_end(fbox, False, False, 0)
@@ -1326,6 +2174,12 @@ def docker():
             st["counts"].set_text(" · ".join(parts))
         render_storage(st["df"])
         render_rows(force)
+        on_screen = WIN and WIN.stack.get_visible_child_name() == "docker"
+        if on_screen and error:
+            status("✗ docker unreachable - " + error.splitlines()[0][:120])
+        elif on_screen and time.time() - st.get("acted", 0) > 6:
+            # keep a just-finished action's message on screen
+            status("✓ Docker refreshed · " + time.strftime("%H:%M:%S"))
         return False
 
     def refresh(force=False):
@@ -1340,9 +2194,19 @@ def docker():
             return False
         threading.Thread(target=work, daemon=True).start()
 
-    def set_filter(key):
-        st["filter"] = key
-        for k, w in fbtns.items(): w.set_active(k == key)
+    def filter_toggled(btn, key):
+        """One tab is always active; programmatic changes are guarded by syncing."""
+        if st.get("syncing"): return
+        st["syncing"] = True
+        try:
+            if not btn.get_active():          # user toggled the active tab off - put it back
+                btn.set_active(True)
+                return
+            st["filter"] = key
+            for k, w in fbtns.items():
+                if w is not btn: w.set_active(False)
+        finally:
+            st["syncing"] = False
         render_rows(force=True)
 
     def job(cmd, busy, okmsg):
@@ -1352,6 +2216,7 @@ def docker():
             rc, out, err = _dc(cmd, 900)
             def fin():
                 st["busy"] = False
+                st["acted"] = time.time()   # keep this message off the refresh sweep
                 if rc != 0:
                     status("✗ " + ((err or out or "failed").splitlines() or ["failed"])[0])
                 else:
@@ -1454,6 +2319,449 @@ def docker():
     # The page is inserted into the stack right after this builder returns, so
     # wait one main-loop turn before the first poll (alive() needs a parent).
     GLib.timeout_add(60, lambda: (refresh(force=True), False)[1])
+    return b
+
+
+# ---------------------------------------------------------------- Disk
+# Disk usage analysis + cleanup. du/find are slow, so everything runs in
+# worker threads and results come back through GLib.idle_add.
+
+def disk_du(path):
+    """du -sxB1 of a path in bytes; 0 when missing/unreadable."""
+    rc, out, _ = _dc(["du", "-sxB1", "--", path], 600)
+    tok = out.split()
+    if rc not in (0, 1) or not tok or not tok[0].isdigit(): return 0
+    return int(tok[0])
+
+def disk_du_dir(path):
+    """du -xaB1 -d1 -> (rows [(basename, bytes, fullpath)], total bytes).
+    -a is required: plain -d1 lists directories only, never files."""
+    rc, out, _ = _dc(["du", "-xaB1", "-d1", "--", path], 900)
+    rows, total = [], 0
+    base = os.path.realpath(path)
+    for line in out.splitlines():
+        if "\t" not in line: continue
+        size, p = line.split("\t", 1)
+        if not size.isdigit(): continue
+        if os.path.realpath(p) == base:
+            total = int(size); continue
+        rows.append((os.path.basename(p), int(size), p))
+    rows.sort(key=lambda r: -r[1])
+    return rows, total
+
+def disk_dupes(path, min_mb=1, progress=None, cancel=None):
+    """Duplicate files under path by content hash.
+    Returns [(filesize, [newest keeper, dup, ...]), ...] sorted by wasted space,
+    or None when cancelled."""
+    rc, out, _ = _dc(["find", path, "-xdev", "-type", "f", "-size", "+%dM" % min_mb,
+                      "-printf", "%s\t%T@\t%p\n"], 1800)
+    by_size = {}
+    for line in out.splitlines():
+        if line.count("\t") != 2: continue
+        s, m, p = line.split("\t")
+        if not s.isdigit(): continue
+        by_size.setdefault(int(s), []).append((float(m), p))
+    cand = [(size, g) for size, g in by_size.items() if len(g) > 1]
+    cand.sort(key=lambda x: -x[0] * (len(x[1]) - 1))
+    total = sum(len(g) for _s, g in cand)
+    done = 0
+    def sha(p):
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""): h.update(chunk)
+        return h.hexdigest()
+    groups = []
+    for size, g in cand:
+        if cancel and cancel(): return None
+        by_hash = {}
+        for mtime, p in g:
+            try: by_hash.setdefault(sha(p), []).append((mtime, p))
+            except OSError: pass
+            done += 1
+            if progress and done % 25 == 0: progress(done, total)
+        for files in by_hash.values():
+            if len(files) < 2: continue
+            files.sort(key=lambda x: -x[0])   # newest stays, older copies go
+            groups.append((size, [p for _, p in files]))
+    groups.sort(key=lambda x: -x[0] * (len(x[1]) - 1))
+    return groups
+
+def disk_sudo_term(title, script):
+    """Run a root command in a visible st window so the password prompt works."""
+    if not have("st"): return status("st is not installed - cannot run " + title)
+    inner = ("sudo -p 'Password: ' sh -c " + shlex.quote(script) +
+             "; rc=$?; echo; echo \"Finished (exit $rc) - press Enter to close\"; read _")
+    bg(["st", "-c", "vxpanel-term", "-t", title, "-e", "sh", "-c", inner])
+    status("→ " + title + " is running in a terminal")
+
+@page("disk", "Disk")
+def disk():
+    b = new_page("Disk")
+    bgc, fg, pal = load_colors()
+    accent, ok, warn, bad = pal[4], pal[2], pal[3], pal[1]
+    H = os.path.expanduser("~")
+    CL, OC, CX = H + "/.local/share/claude", H + "/.local/share/opencode", H + "/.codex"
+    st = {"busy": False, "gen": 0, "path": H, "stack": [], "szlbl": {}, "sizes": {},
+          "groups": [], "orphans": 0}
+
+    def alive(): return b.get_parent() is not None
+    def visible(): return alive() and WIN and WIN.stack.get_visible_child_name() == "disk"
+
+    def bar(w, cr):
+        W, Hh = w.get_allocated_width(), w.get_allocated_height()
+        cr.set_source_rgb(*hex2rgb(mix(bgc, fg, 0.13)))
+        cr.rectangle(0, 0, W, Hh); cr.fill()
+        frac = getattr(w, "frac", 0.0)
+        if frac > 0:
+            cr.set_source_rgb(*hex2rgb(getattr(w, "col", accent)))
+            cr.rectangle(0, 0, max(W * frac, 2), Hh); cr.fill()
+        return False
+
+    def mkbar(frac, col, w=90, h=8):
+        da = Gtk.DrawingArea(); da.set_size_request(w, h)
+        da.frac = float(frac); da.col = col   # set_data() is gone in new PyGObject
+        da.set_valign(Gtk.Align.CENTER)
+        da.connect("draw", bar)
+        return da
+
+    # ---------------- storage
+    c = card(b, "Storage")
+    fsbox = Gtk.Box(orientation=VERT, spacing=9)
+    c.pack_start(fsbox, False, False, 0)
+    rootdev = os.stat("/").st_dev
+    seen = set()
+    for mnt in ("/", "/home", "/var"):
+        try:
+            if mnt != "/" and os.stat(mnt).st_dev == rootdev: continue
+            total, used, _free = shutil.disk_usage(mnt)
+        except OSError:
+            continue
+        if (total, used) in seen: continue   # btrfs subvols report /home as its own device
+        seen.add((total, used))
+        frac = used / total if total else 0
+        r = Gtk.Box(spacing=10)
+        r.pack_start(Gtk.Label(label=mnt, xalign=0), False, False, 14)
+        r.pack_start(mkbar(frac, ok if frac < 0.8 else warn if frac < 0.92 else bad, 200, 9),
+                     False, False, 0)
+        r.pack_end(Gtk.Label(label="%s / %s  (%d%%)" % (size_human(used), size_human(total),
+                                                        round(100 * frac)), xalign=1), False, False, 0)
+        fsbox.pack_start(r, False, False, 0)
+
+    # ---------------- where space goes
+    c = card(b, "What's taking space")
+    head = Gtk.Box(spacing=8)
+    pathlbl = cls(Gtk.Label(label=H, xalign=0), "dim")
+    head.pack_start(pathlbl, True, True, 0)
+    up = btn("↑ up", lambda: go_up()); cls(up, "sm")
+    homeb = btn("⌂ home", lambda: go_home()); cls(homeb, "sm")
+    resc = btn("⟳ rescan", lambda: scan()); cls(resc, "sm")
+    for wdg in (up, homeb, resc): head.pack_end(wdg, False, False, 0)
+    c.pack_start(head, False, False, 0)
+    duelst = Gtk.ListBox(); duelst.set_selection_mode(Gtk.SelectionMode.NONE)
+    cls(duelst, "ctrlist")
+    c.pack_start(duelst, False, False, 0)
+
+    def drill(path):
+        if not os.path.isdir(path): return
+        st["stack"].append(st["path"]); st["path"] = path; scan()
+    def go_up():
+        if not st["stack"]: return status("Already at " + st["path"])
+        st["path"] = st["stack"].pop(); scan()
+    def go_home():
+        st["stack"] = []; st["path"] = H; scan()
+
+    def scan():
+        if st["busy"]: return
+        st["busy"] = True
+        path = st["path"]; gen = st["gen"] = st["gen"] + 1
+        pathlbl.set_text(path)
+        if visible(): status("Scanning " + path + "…")
+        def work():
+            rows, total = disk_du_dir(path)
+            GLib.idle_add(apply_scan, path, rows, total, gen)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def apply_scan(path, rows, total, gen):
+        st["busy"] = False
+        if not alive() or gen != st["gen"] or path != st["path"]: return False
+        for w in duelst.get_children(): duelst.remove(w)
+        shown = [r for r in rows if r[1] >= 8 * 1024 ** 2][:60]
+        small = [r for r in rows if r[1] < 8 * 1024 ** 2]
+        biggest = shown[0][1] if shown else 0
+        for name, n, full in shown:
+            r = Gtk.Box(spacing=10)
+            r.pack_start(mkbar(n / biggest if biggest else 0, accent, 90, 8), False, False, 0)
+            if os.path.isdir(full):
+                d = btn(name, lambda f=full: drill(f))
+                d.set_relief(Gtk.ReliefStyle.NONE)
+                d.get_child().set_xalign(0)
+                d.set_tooltip_text("Click to look inside " + full)
+                r.pack_start(d, True, True, 0)
+            else:
+                r.pack_start(Gtk.Label(label=name, xalign=0), True, True, 0)
+            r.pack_end(Gtk.Label(label=size_human(n), xalign=1), False, False, 0)
+            duelst.add(r)
+        if small:
+            n = cls(Gtk.Label(label="· %d smaller entries (%s)" % (len(small),
+                     size_human(sum(x[1] for x in small))), xalign=0), "dim")
+            duelst.add(n)
+        duelst.show_all()
+        if visible():
+            status("✓ %s · %s in %d entries" % (path, size_human(total), len(rows)))
+        GLib.idle_add(measure)
+        return False
+
+    # ---------------- cleanup
+    c = card(b, "Cleanup")
+    note = cls(Gtk.Label(label="User items are deleted directly; system items open a terminal and ask for sudo.",
+                         xalign=0), "dim")
+    note.set_line_wrap(True)
+    c.pack_start(note, False, False, 0)
+    acts = Gtk.Box(orientation=VERT, spacing=8)
+    c.pack_start(acts, False, False, 0)
+
+    USER_ITEMS = [
+        ("User cache", "~/.cache (pywal's wal theme is kept)", [H + "/.cache"], ("wal",),
+         "Clear ~/.cache? Applications rebuild it on next launch."),
+        ("Claude caches", "snapshots · telemetry · paste cache", [CL + "/shell-snapshots", CL + "/telemetry",
+         CL + "/paste-cache", CL + "/cache"], (), "Clear Claude's caches (snapshots, telemetry, paste cache)?"),
+        ("OpenCode caches", "logs · tool output", [OC + "/log", OC + "/tool-output", H + "/.cache/opencode"], (),
+         "Clear OpenCode's logs and tool output cache?"),
+        ("Codex caches", "cache · logs · tmp", [CX + "/cache", CX + "/log", CX + "/tmp"], (),
+         "Clear Codex's caches, logs and temp files?"),
+        ("Agent histories", "Claude projects · Codex sessions · OpenCode sessions",
+         [CL + "/projects", CX + "/sessions", OC + "/project"], (),
+         "Delete agent conversation history? Past Claude/Codex/OpenCode sessions cannot be restored."),
+    ]
+
+    def item_size(paths):
+        t = 0
+        for p in paths:
+            if os.path.isdir(p): t += disk_du(p)
+            elif os.path.isfile(p): t += os.path.getsize(p)
+        return t
+
+    def make_user_row(label, hint, paths, excludes, cfm):
+        r = Gtk.Box(spacing=12)
+        vbox = Gtk.Box(orientation=VERT, spacing=1)
+        vbox.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+        vbox.pack_start(cls(Gtk.Label(label=hint, xalign=0), "dim"), False, False, 0)
+        r.pack_start(vbox, True, True, 0)
+        szlbl = cls(Gtk.Label(label="…", xalign=1), "dim")
+        r.pack_end(szlbl, False, False, 0)
+        cb = btn("Clear", lambda: clear_item(label, paths, excludes, cfm))
+        cb.set_valign(Gtk.Align.CENTER)
+        r.pack_end(cb, False, False, 0)
+        acts.pack_start(r, False, False, 0)
+        st["szlbl"][label] = szlbl
+
+    def clear_item(label, paths, excludes, cfm):
+        if st["busy"]: return status("busy - wait for the current job")
+        if not confirm(cfm): return
+        st["busy"] = True; status("Clearing " + label + "…")
+        def work():
+            before = item_size(paths)
+            for p in paths:
+                if os.path.isdir(p):
+                    for child in os.listdir(p):
+                        if child in excludes: continue
+                        q = os.path.join(p, child)
+                        try: shutil.rmtree(q) if os.path.isdir(q) else os.remove(q)
+                        except OSError: pass
+                elif os.path.isfile(p):
+                    try: os.remove(p)
+                    except OSError: pass
+            freed = max(before - item_size(paths), 0)
+            GLib.idle_add(done_clear, label, freed)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def done_clear(label, freed):
+        st["busy"] = False
+        if not alive(): return False
+        status("✓ Cleared %s · freed %s" % (label, size_human(freed)))
+        measure()
+        return False
+
+    for it in USER_ITEMS: make_user_row(*it)
+
+    # system rows (sudo via a terminal)
+    def sys_row(label, hint, has_size=True):
+        r = Gtk.Box(spacing=12)
+        vbox = Gtk.Box(orientation=VERT, spacing=1)
+        vbox.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+        vbox.pack_start(cls(Gtk.Label(label=hint, xalign=0), "dim"), False, False, 0)
+        r.pack_start(vbox, True, True, 0)
+        if has_size:
+            szlbl = cls(Gtk.Label(label="…", xalign=1), "dim")
+            r.pack_end(szlbl, False, False, 0)
+        else:
+            szlbl = None
+        acts.pack_start(r, False, False, 0)
+        return r, szlbl
+
+    def small_btn(r, text, fn, danger=False):
+        x = btn(text, fn)
+        cls(x, "danger" if danger else "sm")
+        x.set_valign(Gtk.Align.CENTER); x.set_margin_start(8)
+        r.pack_end(x, False, False, 0)
+        return x
+
+    r, szlbl = sys_row("Pacman package cache", "/var/cache/pacman/pkg")
+    st["szlbl"]["pacman"] = szlbl
+    small_btn(r, "Keep 3 versions", lambda: disk_sudo_term("Pacman cache", "paccache -r"))
+    small_btn(r, "Drop uninstalled", lambda: disk_sudo_term("Pacman cache", "paccache -ruk0"))
+
+    r, szlbl = sys_row("Journal logs", "systemd journal on disk")
+    st["szlbl"]["journal"] = szlbl
+    small_btn(r, "Vacuum to 100M", lambda: disk_sudo_term("Journal vacuum", "journalctl --vacuum-size=100M"))
+
+    r, szlbl = sys_row("Orphan packages", "installed as deps but no longer needed")
+    st["szlbl"]["orphans"] = szlbl
+    orphan_btn = small_btn(r, "Remove orphans",
+                           lambda: disk_sudo_term("Orphan packages", "pacman -Rns $(pacman -Qtdq)"))
+    orphan_btn.set_sensitive(False)
+
+    r, _sz = sys_row("SSD TRIM", "reclaim unmapped blocks (safe, fast)", has_size=False)
+    small_btn(r, "fstrim -av", lambda: disk_sudo_term("TRIM", "fstrim -av"))
+
+    r, _sz = sys_row("Your cleanup scripts", "interactive, with dry-run flags", has_size=False)
+    for t, s in (("Package caches", H + "/.local/bin/cleanup-package-caches.sh"),
+                 ("System caches", H + "/.local/bin/cleanup-system-caches.sh")):
+        small_btn(r, t, lambda sc=s: disk_sudo_term("Cleanup script", "bash " + shlex.quote(sc) + " </dev/tty"))
+
+    btnrow(c, btn("Refresh sizes", lambda: measure()))
+
+    # ---------------- duplicates
+    c = card(b, "Duplicates")
+    dhead = Gtk.Box(spacing=8)
+    duplbl = cls(Gtk.Label(label="Not scanned yet - scans the folder shown above.", xalign=0), "dim")
+    dhead.pack_start(duplbl, True, True, 0)
+    c.pack_start(dhead, False, False, 0)
+    duplst = Gtk.ListBox(); duplst.set_selection_mode(Gtk.SelectionMode.NONE)
+    cls(duplst, "ctrlist")
+    c.pack_start(duplst, False, False, 0)
+
+    delall = small_btn(dhead, "Delete all (keep newest)", lambda: delete_all(), danger=True)
+    scanb = small_btn(dhead, "Scan for duplicates", lambda: scan_dupes())
+    delall.set_sensitive(False)
+
+    def scan_dupes():
+        if st["busy"]: return status("busy - wait for the current job")
+        st["busy"] = True
+        path = st["path"]; gen = st["gen"] = st["gen"] + 1
+        scanb.set_sensitive(False)
+        status("Scanning %s for duplicate files…" % path)
+        def prog(done, total):
+            GLib.idle_add(lambda: status("Hashing duplicates… %d/%d files" % (done, total)))
+        def work():
+            groups = disk_dupes(path, 1, progress=prog, cancel=lambda: gen != st["gen"])
+            GLib.idle_add(apply_dupes, groups, path, gen)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def render_groups(path):
+        for w in duplst.get_children(): duplst.remove(w)
+        waste = sum(s * (len(f) - 1) for s, f in st["groups"])
+        delall.set_sensitive(bool(st["groups"]))
+        if not st["groups"]:
+            duplbl.set_text("No duplicates >= 1 MB in %s." % path)
+        else:
+            duplbl.set_text("%d groups · %s waste in %s" % (len(st["groups"]), size_human(waste), path))
+            for i, (size, files) in enumerate(st["groups"][:40]):
+                r = Gtk.Box(spacing=10)
+                r.pack_start(Gtk.Label(label="%d × %s" % (len(files), size_human(size)), xalign=0),
+                             False, False, 0)
+                r.pack_end(btn("Keep newest", lambda g=i: delete_group(g)), False, False, 0)
+                duplst.add(r)
+                for p in files:
+                    fr = Gtk.Box(spacing=10)
+                    lbl = cls(Gtk.Label(label=p.replace(path + "/", ""), xalign=0), "dim")
+                    lbl.set_margin_start(12)
+                    fr.pack_start(lbl, True, True, 0)
+                    duplst.add(fr)
+        duplst.show_all()
+
+    def apply_dupes(groups, path, gen):
+        st["busy"] = False
+        scanb.set_sensitive(True)
+        if not alive() or gen != st["gen"]: return False
+        st["groups"] = groups or []
+        render_groups(path)
+        waste = sum(s * (len(f) - 1) for s, f in st["groups"])
+        if visible():
+            status("✓ %d duplicate groups · %s waste" % (len(st["groups"]), size_human(waste)))
+        return False
+
+    def do_delete(paths):
+        freed = 0
+        for p in paths:
+            try:
+                freed += os.path.getsize(p); os.remove(p)
+            except OSError: pass
+        return freed
+
+    def delete_group(i):
+        size, files = st["groups"][i]
+        gone = files[1:]
+        if not confirm("Delete %d older copies of a %s file?\nThe newest copy is kept." % (len(gone), size_human(size))):
+            return
+        freed = do_delete(gone)
+        st["groups"].pop(i)
+        render_groups(st["path"])
+        status("✓ Deleted %d copies · freed %s" % (len(gone), size_human(freed)))
+
+    def delete_all():
+        gone = [p for _, files in st["groups"] for p in files[1:]]
+        waste = sum(s * (len(f) - 1) for s, f in st["groups"])
+        if not gone: return
+        if not confirm("Delete %d duplicate files and free %s?\nThe newest copy of every file is kept."
+                       % (len(gone), size_human(waste))): return
+        freed = do_delete(gone)
+        st["groups"] = []
+        render_groups(st["path"])
+        duplbl.set_text("Deleted %d files · freed %s" % (len(gone), size_human(freed)))
+        status("✓ Deleted %d duplicates · freed %s" % (len(gone), size_human(freed)))
+
+    # ---------------- measuring sizes
+    def measure():
+        if st["busy"]: return
+        st["busy"] = True
+        orphan_btn.set_sensitive(False)
+        if visible(): status("Measuring disk usage…")
+        def work():
+            sizes = {}
+            for label, _hint, paths, _ex, _cfm in USER_ITEMS:
+                sizes[label] = item_size(paths)
+            sizes["pacman"] = disk_du("/var/cache/pacman/pkg")
+            rc, out, _ = _dc(["journalctl", "--disk-usage"], 30)
+            m = re.search(r"([\d.]+)\s*([KMGT])", out)
+            sizes["journal"] = size_bytes(m.group(1) + m.group(2) + "B") if m else 0
+            rc, out, _ = _dc(["pacman", "-Qtdq"], 60)
+            sizes["orphans"] = out.split() if rc in (0, 1) else []
+            GLib.idle_add(apply_sizes, sizes)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def apply_sizes(sizes):
+        st["busy"] = False
+        if not alive(): return False
+        st["sizes"] = sizes
+        for label, szlbl in st["szlbl"].items():
+            if label in ("pacman", "journal"):
+                szlbl.set_text(size_human(sizes[label]))
+            elif label == "orphans":
+                n = len(sizes["orphans"])
+                szlbl.set_text("%d packages" % n if n else "none")
+                orphan_btn.set_sensitive(n > 0)
+            elif label in sizes:
+                szlbl.set_text(size_human(sizes[label]))
+        if visible():
+            status("✓ Disk refreshed · " + time.strftime("%H:%M:%S"))
+        return False
+
+    GLib.timeout_add(80, scan)
     return b
 
 # ---------------------------------------------------------------- Window

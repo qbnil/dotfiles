@@ -13,6 +13,16 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
+    // Zig 0.17 removed @cImport. Translate the C headers once in the build and
+    // expose them to main.zig as the ordinary `c` module.
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/c.h"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addImport("c", translate_c.createModule());
+
     const out_mode: OutMode = b.option(OutMode, "mode", "X11 or Wayland") orelse .X11;
 
     const options = b.addOptions();
@@ -32,9 +42,9 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    // Zig 0.17 removed Build.args; `zig build run` no longer forwards extra
+    // arguments. zlstatus takes none — it is configured at compile time — so
+    // dropping the forwarding loses nothing.
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);

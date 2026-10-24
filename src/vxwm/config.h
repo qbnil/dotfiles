@@ -309,10 +309,13 @@ static const Key keys[] = {
   { ALTERNATE_MODKEY,   XK_e,      enhancedtogglefloating, {0} }, //enhanced toggle floating bind. (Alt because floating)
 #endif
 #if FLOATING_ALTTAB
-  { ALTERNATE_MODKEY,             XK_Tab,    alttaball,       {.i = +1 } }, // next window (tiled and floating)
-  { ALTERNATE_MODKEY|ShiftMask,   XK_Tab,    alttaball,       {.i = -1 } }, // previous window
+  /* macOS-style searchable window chooser. */
+  { ALTERNATE_MODKEY,             XK_Tab,    spawn,           {.v = dmenuwin} },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Tab,    spawn,           {.v = dmenuwin} },
   { ALTERNATE_MODKEY,             XK_grave,  alttab,          {.i = +1 } }, // next floating window only
   { ALTERNATE_MODKEY|ShiftMask,   XK_grave,  alttab,          {.i = -1 } }, // previous floating window only
+  { ALTERNATE_MODKEY,             XK_backslash, alttaball,     {.i = +1 } }, // next window, all layouts
+  { ALTERNATE_MODKEY|ShiftMask,   XK_backslash, alttaball,     {.i = -1 } }, // previous window, all layouts
 #endif
 #if GAPS
   { MODKEY,                       XK_equal,  setgaps,        {.i = -5 } },

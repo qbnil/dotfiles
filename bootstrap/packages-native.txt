@@ -79,3 +79,4 @@ zoxide
 zsh-autosuggestions
 zsh-syntax-highlighting
 x11-ssh-askpass
+thunar-archive-plugin

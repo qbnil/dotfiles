@@ -1,19 +1,52 @@
 #!/bin/sh
 # Toggle Tailscale on/off.
 # Bound to Super+Shift+\ in vxwm config.h
+#
+# BackendState is the on/off authority here, not Self.Online. A node that is up
+# but cannot currently reach the tailnet still reports BackendState=Running and
+# MUST be turned off by this key. Self.Online can be false in exactly that
+# state, which made the old script take the "up" branch, run `tailscale up` on
+# an already-running node and notify "Connected" forever.
 
-state=$(tailscale status --json 2>/dev/null | jq -r '.Self.Online // false')
+set -u
 
-if [ "$state" = "true" ]; then
-	if msg=$(tailscale down 2>&1); then
-		notify-send -i network-vpn-offline "Tailscale" "Disconnected" 2>/dev/null
-	else
-		notify-send -u critical -i dialog-error "Tailscale" "Disconnect failed: $msg" 2>/dev/null
-	fi
-else
-	if msg=$(tailscale up 2>&1); then
-		notify-send -i network-vpn "Tailscale" "Connected" 2>/dev/null
-	else
-		notify-send -u critical -i dialog-error "Tailscale" "Connect failed: $msg" 2>/dev/null
-	fi
+if ! command -v jq >/dev/null 2>&1; then
+	notify-send -u critical -i dialog-error "Tailscale" "jq is required to read the Tailscale state" 2>/dev/null
+	exit 1
 fi
+
+json=$(tailscale status --json 2>/dev/null) || {
+	notify-send -u critical -i dialog-error "Tailscale" "tailscaled is not reachable" 2>/dev/null
+	exit 1
+}
+
+state=$(printf '%s\n' "$json" | jq -r '.BackendState // "NoState"' 2>/dev/null)
+[ -n "$state" ] || state=NoState
+
+case "$state" in
+	Running|Starting)
+		if msg=$(tailscale down 2>&1); then
+			notify-send -i network-vpn-offline "Tailscale" "Disconnected" 2>/dev/null
+		else
+			notify-send -u critical -i dialog-error "Tailscale" "Disconnect failed: $msg" 2>/dev/null
+			exit 1
+		fi
+		;;
+	*)
+		if msg=$(tailscale up 2>&1); then
+			# Verify instead of assuming: NeedsLogin, a rejected key, or a
+			# dead daemon can exit 0 while the node is still not Running.
+			new=$(tailscale status --json 2>/dev/null | jq -r '.BackendState // "NoState"')
+			if [ "$new" = "Running" ]; then
+				notify-send -i network-vpn "Tailscale" "Connected" 2>/dev/null
+			else
+				notify-send -u critical -i dialog-error "Tailscale" "Not connected ($new)" 2>/dev/null
+				[ -n "$msg" ] && printf '%s\n' "$msg" >&2
+				exit 1
+			fi
+		else
+			notify-send -u critical -i dialog-error "Tailscale" "Connect failed: $msg" 2>/dev/null
+			exit 1
+		fi
+		;;
+esac

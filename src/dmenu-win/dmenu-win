@@ -120,7 +120,6 @@ obsidian_label() {
 get_windows() {
     active="$(get_active_id)"
     get_windows_ids | while read -r id; do
-        [ "$(printf '%d' "$id" 2> /dev/null)" = "$active" ] && continue  # skip current window
         name="$(get_window_name "$id")"
         [ -z "$name" ] && continue
         class="$(get_window_class "$id")"
@@ -142,6 +141,9 @@ get_windows() {
                 ;;
         esac
 
+        if [ "$(printf '%d' "$id" 2> /dev/null)" = "$active" ]; then
+            detail="[current] $detail"
+        fi
         [ -n "$detail" ] && printf '%s\t%s: %s\n' "$id" "$class" "$detail" \
                          || printf '%s\t%s\n' "$id" "$class"
     done | awk -F'\t' 'BEGIN{OFS="\t"} {c[$2]++; if (c[$2]>1) $2=$2" ("c[$2]")"; print}'
