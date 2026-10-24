@@ -1669,17 +1669,23 @@ def logs():
     st = {"dead": False, "rows": [], "source": "all", "query": "", "since": "boot"}
 
     sources = {
-        "all": ("All system logs", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "kernel": ("Kernel / drivers", ["journalctl", "-k", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "boot": ("Boot / firmware / BIOS", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "gpu": ("GPU / NVIDIA / DRM", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "cpu": ("CPU / system", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "tailscale": ("Tailscale", ["journalctl", "-u", "tailscaled", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "docker": ("Docker / containers", ["journalctl", "-u", "docker", "-u", "containerd", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "network": ("Network / DNS", ["journalctl", "-u", "NetworkManager", "-u", "systemd-resolved", "-u", "iwd", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "xorg": ("Xorg / desktop", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "zlstatus": ("zlstatus", ["journalctl", "-b", "0", "-o", "short-iso", "--no-pager"]),
-        "user": ("User services", ["journalctl", "--user", "-b", "0", "-o", "short-iso", "--no-pager"]),
+        # Always bound the query. A complete boot journal can be enormous and
+        # made the old tab appear stale while GTK was rendering thousands of
+        # historical lines before reaching the current entries.
+        "all": ("All system logs · latest", ["journalctl", "-b", "0", "-n", "3000", "-o", "short-iso", "--no-pager"]),
+        "kernel": ("Kernel / drivers · latest", ["journalctl", "-k", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        "boot": ("Boot / firmware / BIOS", ["journalctl", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        "gpu": ("GPU / NVIDIA / DRM", ["journalctl", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        "cpu": ("CPU / system", ["journalctl", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        # Tailscale is intentionally a short, recent diagnostic window. It
+        # keeps the control-plane failures (map poll, DNS, DERP, reconnects)
+        # visible instead of burying them in old startup noise.
+        "tailscale": ("Tailscale · live diagnostics", ["journalctl", "-u", "tailscaled", "--since", "2 hours ago", "-n", "1000", "-o", "short-iso", "--no-pager"]),
+        "docker": ("Docker / containers", ["journalctl", "-u", "docker", "-u", "containerd", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        "network": ("Network / DNS", ["journalctl", "-u", "NetworkManager", "-u", "systemd-resolved", "-u", "iwd", "-b", "0", "-n", "2000", "-o", "short-iso", "--no-pager"]),
+        "xorg": ("Xorg / desktop", ["journalctl", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        "zlstatus": ("zlstatus", ["journalctl", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
+        "user": ("User services", ["journalctl", "--user", "-b", "0", "-n", "1500", "-o", "short-iso", "--no-pager"]),
     }
     keywords = {
         "gpu": r"nvidia|nvrm|drm|gpu|amdgpu|mesa|cuda|vulkan",
@@ -1688,6 +1694,10 @@ def logs():
         "xorg": r"xorg|x11|vxwm|xinit|xserver|compositor|xcompmgr|dunst",
         "zlstatus": r"zlstatus",
     }
+    # High-signal events are useful when the user searches the all-log view.
+    # The Tailscale source itself is deliberately unfiltered so no diagnosis
+    # disappears from the panel.
+    keywords["tailscale"] = r"tailscale|tailscaled|mapresponse|netmap|derp|controlplane|coordination|health|dns|control:|poll|timeout|online|relay|wireguard|magicsock"
 
     top = Gtk.Box(spacing=7)
     source = Gtk.ComboBoxText()
@@ -1753,7 +1763,12 @@ def logs():
         GLib.idle_add(lambda: (scroll.get_vadjustment().set_value(scroll.get_vadjustment().get_upper()), False)[1] if not st.get("user_scrolled") else False)
     def worker(cmd, source_key, since_key):
         c = list(cmd)
-        if since_key == "today": c[2:2] = ["--since", "today"]
+        # Add time selectors as real journalctl options. The old fixed
+        # insertion point put --since between -u and its unit name for the
+        # Tailscale source, producing an invalid query and an apparently empty
+        # Logs tab.
+        if since_key == "today":
+            c += ["--since", "today"]
         elif since_key == "all":
             c = [x for x in c if x not in ("-b", "0")]
         try:

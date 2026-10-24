@@ -33,7 +33,9 @@ case "$state" in
 		fi
 		;;
 	*)
-		if msg=$(tailscale up 2>&1); then
+		# Keep system DNS in control of NetworkManager/resolv.conf. Tailscale's
+		# 100.100.100.100 resolver is unreliable here when an exit node is active.
+		if msg=$(tailscale up --accept-dns=false 2>&1); then
 			# Verify instead of assuming: NeedsLogin, a rejected key, or a
 			# dead daemon can exit 0 while the node is still not Running.
 			new=$(tailscale status --json 2>/dev/null | jq -r '.BackendState // "NoState"')
