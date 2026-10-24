@@ -179,6 +179,7 @@ fn readBatStatus() void {
 }
 
 var mixer: ?*c.snd_mixer_t = null;
+var master_elem: ?*c.snd_mixer_elem_t = null;
 var vol_min: f32 = 0;
 var vol_max: f32 = 0;
 var fVolume: u8 = 0;
@@ -1524,6 +1525,7 @@ pub fn main() u8 {
             _ = c.snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
             vol_min = @floatFromInt(min);
             vol_max = @floatFromInt(max);
+            master_elem = elem;
             c.snd_mixer_elem_set_callback(elem, readMasterVolume);
             _ = readMasterVolume(elem, 0);
             break;
@@ -1571,6 +1573,7 @@ pub fn main() u8 {
     while (true) {
         for (0..@intCast(c.epoll_wait(epollfd, &events, MAX_EVENTS, -1))) |i| {
             const ev: c.epoll_event = events[i];
+            if (ev.data.u64 > @intFromEnum(Event.ProbeTimer)) continue;
             @as(Event, @enumFromInt(ev.data.u64)).handleEvent();
         }
         writeStatus();
@@ -1607,6 +1610,8 @@ const Event = enum(u8) {
         if (last_monotonic > 0 and now - last_monotonic > 120) {
             netLog("resume detected (gap {d}s), refreshing network status", .{now - last_monotonic});
             netRefresh();
+            probeKick();
+            if (master_elem) |elem| _ = readMasterVolume(elem, 0);
         }
         last_monotonic = now;
 
