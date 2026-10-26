@@ -434,6 +434,21 @@ fn ifaceIsUp(ifname: []const u8) bool {
     return false;
 }
 
+/// True when the interface is still administratively present. During Wi-Fi
+/// reassociation IFF_RUNNING can briefly clear, but the status should continue
+/// to identify wlan0 instead of switching to tailscale0 or another tunnel.
+fn ifaceExists(ifname: []const u8) bool {
+    var ifaddr: ?*c.ifaddrs = null;
+    if (c.getifaddrs(&ifaddr) != 0) return false;
+    defer _ = c.freeifaddrs(ifaddr);
+    var cur: ?*c.ifaddrs = ifaddr;
+    while (cur) |ifa| : (cur = ifa.*.ifa_next) {
+        if (!std.mem.eql(u8, std.mem.span(ifa.*.ifa_name), ifname)) continue;
+        return ifa.*.ifa_flags & c.IFF_UP != 0;
+    }
+    return false;
+}
+
 const DnsInfo = struct {
     count: usize = 0,
     // True while every nameserver seen so far sits in Tailscale's 100.64.0.0/10.
@@ -652,7 +667,11 @@ const PROBE_TIMEOUT_MS: u64 = 2500;
 const PROBE_HEALTHY_MS: u64 = 5000;
 const PROBE_RETRY_MS: u64 = 1000;
 const PROBE_SETTLE_MS: u64 = 100;
-const PROBE_FAIL_LIMIT: u8 = 2;
+// Public TCP services can briefly drop or filter a SYN. Two failures were
+// enough to make a healthy connection flash `no-inet` (especially while a
+// route or Tailscale was settling). Require a complete extra failure before
+// changing the visible verdict; successful checks still clear it immediately.
+const PROBE_FAIL_LIMIT: u8 = 3;
 
 var probe_state: ProbeState = .unknown;
 var probe_timerfd: c_int = -1;
@@ -861,7 +880,11 @@ fn netRender(route: RouteInfo) void {
         @memcpy(last_routed_iface[0..route.iface_len], route.iface[0..route.iface_len]);
         last_routed_iface_len = route.iface_len;
         break :blk route.iface[0..route.iface_len];
-    } else if (last_routed_iface_len > 0) blk: {
+    } else if (last_routed_iface_len > 0 and blk: {
+        var remembered: [16]u8 = undefined;
+        @memcpy(remembered[0..last_routed_iface_len], last_routed_iface[0..last_routed_iface_len]);
+        break :blk ifaceExists(remembered[0..last_routed_iface_len]);
+    }) blk: {
         // No default route right now, but we remember which interface had it last
         @memcpy(ifbuf[0..last_routed_iface_len], last_routed_iface[0..last_routed_iface_len]);
         break :blk ifbuf[0..last_routed_iface_len];
@@ -1045,7 +1068,13 @@ fn netHandleEvent() void {
         var buf: [4096]u8 = undefined;
         while (c.recv(netfd, &buf, buf.len, 0) > 0) {}
     }
+    // A route change is a new connection attempt. Do not carry an old WAN
+    // failure across DHCP/reassociation; the probe will verify the new route.
+    probeClose();
+    probe_state = .unknown;
+    probe_failures = 0;
     netRefresh();
+    probeKick();
 }
 
 // --- Battery charger uevents -----------------------------------------------
