@@ -1,0 +1,4 @@
+#!/bin/sh
+# podman-panel - open vxpanel's Podman administration page.
+BIN=$(command -v vxpanel) || BIN="$HOME/.local/bin/vxpanel"
+exec "$BIN" --page podman "$@"

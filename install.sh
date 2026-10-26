@@ -198,7 +198,7 @@ X_PKGS=(xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xrdb xorg-xset xor
 FONT_PKGS=(ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji ttf-font-awesome
            ttf-jetbrains-mono ttf-jetbrains-mono-nerd ttf-nerd-fonts-symbols)
 
-APP_PKGS=(zsh neovim tmux dunst libnotify mpd mpc yazi thunar
+APP_PKGS=(zsh neovim tmux dunst libnotify mpd mpc yazi thunar podman distrobox
           pipewire pipewire-pulse wireplumber networkmanager
           zram-generator xdg-utils ripgrep fd fzf
           udisks2 udisks2-btrfs gvfs gvfs-mtp thunar-volman polkit polkit-gnome upower)
@@ -663,6 +663,25 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null; then
     print_success "Docker $(docker --version | awk '{print $3}' | tr -d ,) with Compose $(docker compose version --short 2>/dev/null || echo v2)"
 else
     print_warning "docker compose plugin missing - install it with: sudo pacman -S docker docker-compose docker-buildx"
+fi
+
+# ----------------------------------------------------------------------------
+# Rootless Podman + Distrobox
+# ----------------------------------------------------------------------------
+# This is the container setup used by this profile: Distrobox runs rootless on
+# Podman, so no Docker-group membership or rootful Podman service is required.
+# Podman is daemonless and the local API socket is not needed by Distrobox.
+print_status "Configuring rootless Podman and Distrobox..."
+pacman_install podman distrobox
+if command -v podman >/dev/null 2>&1 && command -v distrobox >/dev/null 2>&1; then
+    print_success "Rootless Podman $(podman --version | awk '{print $3}') and Distrobox $(distrobox version 2>/dev/null | head -1) are available"
+    if [ "${DOTFILES_CREATE_DISTROBOX:-0}" = "1" ] && [ -x "$DOTFILES_DIR/bootstrap/setup-distrobox.sh" ]; then
+        DISTROBOX_BUILD=1 "$DOTFILES_DIR/bootstrap/setup-distrobox.sh"
+    else
+        print_warning "Kali Distrobox creation skipped (run DOTFILES_CREATE_DISTROBOX=1 ./install.sh to create it)"
+    fi
+else
+    print_warning "Podman/Distrobox setup incomplete"
 fi
 
 # ----------------------------------------------------------------------------

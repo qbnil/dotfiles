@@ -1,0 +1,4 @@
+#!/bin/sh
+# distrobox-panel - open vxpanel's Distrobox administration page.
+BIN=$(command -v vxpanel) || BIN="$HOME/.local/bin/vxpanel"
+exec "$BIN" --page distrobox "$@"

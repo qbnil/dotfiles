@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """vxpanel - flat, lightweight floating control panel for dwm-style X11 setups (GTK3 + pywal).
-Usage: vxpanel [--page display|colors|theme|audio|input|notify|system|network|logs|docker|disk]
+Usage: vxpanel [--page display|colors|theme|audio|input|notify|system|network|logs|docker|podman|distrobox|disk]
 Changes that X forgets on restart are saved to ~/.config/vxpanel/startup.sh - run it from your autostart.
 
 Session start never runs this script: startup.sh carries a plain `redshift -O`
@@ -1846,6 +1846,27 @@ def size_human(n):
         if n >= div: return "%.2f %s" % (n / div, unit)
     return "%d B" % n
 
+def container_size(obj):
+    """Return readable actual writable and virtual container sizes."""
+    value = obj.get("Size")
+    if isinstance(value, dict):
+        rw = value.get("rwSize", 0)
+        root = value.get("rootFsSize", 0)
+        if rw or root:
+            return "used %s · virtual %s" % (size_human(rw), size_human(root))
+    # Docker/older Podman may provide a human-readable Size string.
+    text = obj.get("SizeRw") or value or ""
+    if text:
+        text = str(text)
+        # Podman reports e.g. "9.33GB (virtual 9.58GB)". Keep both values,
+        # but normalize the label so the panel clearly shows disk usage.
+        m = re.match(r"\s*([^()]+?)(?:\s*\(virtual\s+([^()]+)\))?\s*$", text, re.I)
+        if m:
+            used, virtual = m.group(1).strip(), m.group(2)
+            return "used %s%s" % (used, " · virtual " + virtual.strip() if virtual else "")
+        return text
+    return "size unavailable"
+
 def _docker_state(full=True):
     """(containers, system df rows, info, error) - safe for a worker thread.
     df is None when full=False, meaning 'keep the previous storage numbers'."""
@@ -2336,6 +2357,166 @@ def docker():
     GLib.timeout_add(60, lambda: (refresh(force=True), False)[1])
     return b
 
+
+# ---------------------------------------------------------------- Podman / Distrobox
+# These pages deliberately use the native CLIs instead of Docker compatibility
+# layers.  That keeps rootless Podman useful and makes Distrobox status visible
+# even when Docker is stopped or unavailable.
+def _podman_state():
+    if not have("podman"):
+        return [], {}, "Podman is not installed. Install it with: sudo pacman -S podman"
+    rc, out, err = _dc(["podman", "info", "--format", "{{json .}}"], 20)
+    if rc != 0:
+        return [], {}, err or out or "Podman is not reachable"
+    try: info = json.loads(out)
+    except Exception: info = {}
+    rc, out, err = _dc(["podman", "ps", "-a", "--size", "--format", "{{json .}}"], 30)
+    if rc != 0: return [], info, err or "Could not list Podman containers"
+    rows = []
+    for line in out.splitlines():
+        try:
+            if line.strip():
+                obj = json.loads(line)
+                # Podman's ps reporter exposes the size as a string, while
+                # inspect exposes the exact rootfs and writable sizes.
+                if obj.get("Names"):
+                    rc2, raw, _ = _dc(["podman", "inspect", obj["Names"], "--format", "{{json .Size}}"], 20)
+                    if rc2 == 0:
+                        try: obj["Size"] = json.loads(raw)
+                        except Exception: pass
+                rows.append(obj)
+        except Exception: pass
+    return rows, info, None
+
+def _distrobox_state():
+    if not have("distrobox"):
+        return [], "Distrobox is not installed. Install it with: sudo pacman -S distrobox"
+    rc, out, err = _dc(["distrobox", "list"], 20)
+    if rc != 0: return [], err or out or "Could not list Distrobox containers"
+    rows = []
+    # Current distrobox output is a table. Keep parsing tolerant of column
+    # spacing and both old and new headers.
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line.startswith("ID ") or line.startswith("CONTAINER ID") or set(line) <= set("- |"):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) >= 4:
+            rows.append({"ID": parts[0], "Names": parts[1], "Status": parts[2], "Image": parts[3], "State": "running" if "up" in parts[2].lower() else "exited"})
+    # Distrobox's table does not expose disk usage. Enrich it from the native
+    # rootless Podman store when available.
+    if have("podman"):
+        rc, pout, _ = _dc(["podman", "ps", "-a", "--size", "--format", "{{json .}}"], 30)
+        by_name = {}
+        for line in pout.splitlines():
+            try:
+                obj = json.loads(line); by_name[obj.get("Names")] = obj
+            except Exception: pass
+        for row in rows:
+            obj = by_name.get(row["Names"], {})
+            row.update({k: obj.get(k, row.get(k, "")) for k in ("Size", "ID", "State", "Status", "Image")})
+            if not row.get("Size"):
+                rc, inspect, _ = _dc(["podman", "inspect", row["Names"], "--format", "{{json .Size}}"], 20)
+                if rc == 0:
+                    try: row["Size"] = json.loads(inspect)
+                    except Exception: pass
+    return rows, None
+
+def _runtime_page(runtime, title):
+    b = new_page(title)
+    accent, ok, warn = load_colors()[2][4], load_colors()[2][2], load_colors()[2][3]
+    st = {"rows": [], "info": {}, "error": None, "sig": None, "dead": False, "fetching": False}
+    def alive(): return not st["dead"] and b.get_parent() is not None
+    def chip(text, kind=None):
+        w = cls(Gtk.Label(label=text, xalign=0), "chip")
+        if kind: cls(w, kind)
+        w.set_valign(Gtk.Align.CENTER)
+        return w
+    def refresh():
+        if st["fetching"]: return
+        st["fetching"] = True; status("Refreshing %s…" % title)
+        def work():
+            if runtime == "podman":
+                rows, info, error = _podman_state()
+            else:
+                rows, error = _distrobox_state()
+                info = {}
+            GLib.idle_add(apply, rows, info, error)
+        threading.Thread(target=work, daemon=True).start()
+    def apply(rows, info, error):
+        if not alive(): return False
+        st.update(rows=rows, info=info, error=error, fetching=False)
+        online = not error
+        engine.set_text("ONLINE" if online else "OFFLINE"); set_kind(engine, "on" if online else "off")
+        version = info.get("version", {}).get("Version") if isinstance(info, dict) and isinstance(info.get("version"), dict) else None
+        version = version or (info.get("Version") if isinstance(info, dict) else None)
+        ver.set_text("v" + str(version) if version else ("installed" if online else "—"))
+        if online and runtime == "podman":
+            host = info.get("host", {}) if isinstance(info, dict) else {}
+            store = info.get("store", {}) if isinstance(info, dict) else {}
+            detail = "rootless" if host.get("security", {}).get("rootless") else "rootful"
+            graph = store.get("graphDriverName") or "storage"
+            counts.set_text("%d container%s · %s · %s" % (len(rows), "s" if len(rows) != 1 else "", detail, graph))
+        else:
+            counts.set_text(("%d environment%s" % (len(rows), "s" if len(rows) != 1 else "")) if online else error)
+        for ch in lst.get_children(): lst.remove(ch)
+        if error:
+            msg = cls(Gtk.Label(label=error, xalign=0), "st-dead"); msg.set_line_wrap(True); lst.add(msg)
+        elif not rows:
+            lst.add(cls(Gtk.Label(label="No %s environments found." % title, xalign=0), "dim"))
+        else:
+            for obj in rows: lst.add(row_for(obj))
+        lst.show_all(); updated.set_text("updated " + time.strftime("%H:%M:%S")); return False
+    def set_kind(w, kind):
+        ctx = w.get_style_context()
+        for k in ("on", "off", "hot", "warn"): ctx.remove_class(k)
+        if kind: ctx.add_class(kind)
+    def command(name, action, obj):
+        if runtime == "distrobox":
+            cmd = ["distrobox", action, obj]
+        else:
+            cmd = ["podman", action, obj]
+        run(cmd, "%s %s" % (action.capitalize(), name), refresh)
+    def open_shell(name):
+        """Open an independent terminal; do not try to embed a TTY in GTK."""
+        if not have("st"):
+            return status("✗ st terminal is not installed")
+        if runtime == "distrobox":
+            cmd = ["distrobox", "enter", name, "--", "zsh", "-i"]
+        else:
+            cmd = ["podman", "exec", "-it", name, "sh", "-i"]
+        bg(["st", "-c", "vxpanel-term", "-t", title + ": " + name, "-e"] + cmd)
+        status("✓ terminal opened for " + name)
+    def start_then_open(name):
+        """Start through Podman, then open the correct interactive command."""
+        def after(): open_shell(name)
+        run(["podman", "start", name], "Started " + name, after=after)
+    def row_for(obj):
+        name = obj.get("Names") or obj.get("Name") or obj.get("ID", "")[:12]
+        if isinstance(name, (list, tuple)): name = ", ".join(str(x) for x in name)
+        name = str(name)
+        running = (obj.get("State") or "").lower() in ("running", "up") or "up" in (obj.get("Status") or "").lower()
+        r = Gtk.ListBoxRow(); h = Gtk.Box(spacing=10); dot = cls(Gtk.Label(label="●"), "st-run" if running else "st-stop"); h.pack_start(dot, False, False, 0)
+        text = Gtk.Box(orientation=VERT, spacing=2); text.pack_start(cls(Gtk.Label(label=name, xalign=0), "name"), False, False, 0)
+        size = container_size(obj)
+        sub = (obj.get("Image") or "") + ("  ·  " + (obj.get("Status") or "") if obj.get("Status") else "") + "  ·  " + str(size)
+        text.pack_start(cls(Gtk.Label(label=sub, xalign=0), "dim"), False, False, 0); h.pack_start(text, True, True, 0)
+        power = btn("Stop" if running else "Start", lambda: (command(name, "stop", name) if running else start_then_open(name))); cls(power, "sm"); power.set_tooltip_text("Stop this environment" if running else "Start this environment"); h.pack_end(power, False, False, 0)
+        shell = btn("Enter" if runtime == "distrobox" else "Shell", lambda: (open_shell(name) if running else start_then_open(name))); cls(shell, "sm"); shell.set_tooltip_text("Open an interactive terminal inside this environment"); h.pack_end(shell, False, False, 0)
+        r.add(h); return r
+    c = card(b, "Engine")
+    line = Gtk.Box(spacing=8); engine = chip("CONNECTING"); ver = chip("—"); counts = cls(Gtk.Label(label="—", xalign=0), "dim")
+    line.pack_start(engine, False, False, 0); line.pack_start(ver, False, False, 0); line.pack_start(counts, False, False, 0); line.pack_start(Gtk.Box(), True, True, 0)
+    updated = cls(Gtk.Label(label="waiting…", xalign=0), "dim"); line.pack_start(updated, False, False, 0)
+    ref = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON); cls(ref, "sm"); ref.connect("clicked", lambda _w: refresh()); line.pack_end(ref, False, False, 0); c.pack_start(line, False, False, 0)
+    c = card(b, "Environments"); lst = Gtk.ListBox(); lst.set_selection_mode(Gtk.SelectionMode.NONE); cls(lst, "ctrlist"); c.pack_start(lst, False, False, 0)
+    b.connect("destroy", lambda _w: st.update(dead=True)); refresh(); return b
+
+@page("podman", "Podman")
+def podman(): return _runtime_page("podman", "Podman")
+
+@page("distrobox", "Distrobox")
+def distrobox(): return _runtime_page("distrobox", "Distrobox")
 
 # ---------------------------------------------------------------- Disk
 # Disk usage analysis + cleanup. du/find are slow, so everything runs in

@@ -101,6 +101,32 @@ The following source trees live under `src/` and are rebuilt on a new machine:
 - `src/slock`
 - `src/zlstatus`
 
+The desktop also supports rootless Podman and Distrobox. `vxpanel` includes
+Podman and Distrobox pages, and the helper commands `podman-panel` and
+`distrobox-panel` open those pages directly. Podman is daemonless, so the
+installation does not enable a rootful Podman service or require a Podman
+socket for Distrobox; both run rootless as the logged-in user.
+
+The current machine uses a Kali Distrobox named `kali`. Container storage and
+the live container are intentionally not tracked in the repository. To create
+a fresh equivalent environment after installation:
+
+```bash
+DOTFILES_CREATE_DISTROBOX=1 ./install.sh
+```
+
+Or run the setup directly:
+
+```bash
+./bootstrap/setup-distrobox.sh
+```
+
+The image can be overridden when required:
+
+```bash
+DISTROBOX_IMAGE=localhost/kali-distrobox:minimal ./bootstrap/setup-distrobox.sh
+```
+
 Normal programs install to `~/.local/bin`; `slock` is installed to `/usr/local/bin` because it requires setuid permissions.
 
 To rebuild vxwm manually:
