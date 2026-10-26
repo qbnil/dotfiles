@@ -127,6 +127,14 @@ The image can be overridden when required:
 DISTROBOX_IMAGE=localhost/kali-distrobox:minimal ./bootstrap/setup-distrobox.sh
 ```
 
+### Tailscale DNS
+
+This setup keeps Tailscale DNS enabled. Tailscale's local resolver at
+`100.100.100.100` provides MagicDNS and avoids unreliable DNS servers supplied
+by some Wi-Fi networks. `zlstatus` recognizes that resolver as valid only when
+the Tailscale daemon is running, so a stopped or broken Tailscale instance is
+still reported correctly.
+
 Normal programs install to `~/.local/bin`; `slock` is installed to `/usr/local/bin` because it requires setuid permissions.
 
 To rebuild vxwm manually:

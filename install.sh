@@ -757,6 +757,15 @@ fi
 sudo systemctl enable --now tailscaled 2>/dev/null \
     || print_warning "Could not enable tailscaled now"
 
+# Use Tailscale's local DNS proxy when Tailscale is enabled. This avoids using
+# broken or captive-network DNS advertised by some Wi-Fi DHCP servers while
+# keeping MagicDNS names available. zlstatus treats 100.100.100.100 as valid
+# DNS only while tailscaled is running.
+if command -v tailscale >/dev/null 2>&1; then
+    sudo tailscale set --accept-dns=true 2>/dev/null \
+        || print_warning "Could not enable Tailscale DNS; run: sudo tailscale set --accept-dns=true"
+fi
+
 # Tor
 sudo systemctl enable --now tor.service 2>/dev/null \
     || print_warning "Could not enable tor now"

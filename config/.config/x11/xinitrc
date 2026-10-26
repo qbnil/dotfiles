@@ -20,7 +20,9 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # helper xinitrc, rvx and pywal16 all use, so the order never drifts.
 "$HOME/.local/bin/xrdb-reload"
 
-zlstatus &
+# Always use the installed dotfiles build. Do not launch the development binary
+# from ~/.config/zlstatus/zig-out; it can remain stale after a rebuild.
+"$HOME/.local/bin/zlstatus" &
 
 # Wallpaper: reuse the cached path from the last time wal set one
 # (~/.cache/wal/wal is a plain-text file containing that path) and blit it

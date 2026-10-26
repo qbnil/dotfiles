@@ -63,6 +63,10 @@ fn appendSep(n: *usize) void {
 }
 
 fn setStatus() void {
+    // Keep the clock independent from which event caused the repaint. This is
+    // important after NTP corrections, resume, and network-only updates: the
+    // previous implementation only refreshed fTime on the minute timer tick.
+    readTime();
     var n: usize = 0;
 
     // Now playing (mpd), if any
