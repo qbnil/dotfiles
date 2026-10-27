@@ -18,6 +18,21 @@ if [ "${EUID:-$(id -u)}" -eq 0 ]; then
 	exit 1
 fi
 
+# When this helper is called directly (outside an existing tmux client), TPM
+# has no server in which to store TMUX_PLUGIN_MANAGER_PATH. Initialise the
+# user's configured tmux server and set the same path that tpm.conf would set
+# when it is loaded inside tmux. The dotfiles installer already runs this
+# through an isolated server, so this only affects manual `bash install_plugins`
+# use.
+if [ -z "${TMUX:-}" ]; then
+	tmux_conf="${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf"
+	tmux_plugins="${XDG_CONFIG_HOME:-$HOME/.config}/tmux/plugins/"
+	if command -v tmux >/dev/null 2>&1 && [ -f "$tmux_conf" ]; then
+		tmux start-server >/dev/null 2>&1 || true
+		tmux set-environment -g TMUX_PLUGIN_MANAGER_PATH "$tmux_plugins" >/dev/null 2>&1 || true
+	fi
+fi
+
 main() {
 	bash "$SCRIPTS_DIR/install_plugins.sh" # has correct exit code
 }
