@@ -62,3 +62,6 @@ config/.config/opencode/omniroute.key
 config/.config/opencode/service.json
 config/.config/opencode/auth.json
 config/.config/opencode/*.bak*
+
+# Build output
+src/vxwm/vxwm
