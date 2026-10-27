@@ -52,8 +52,6 @@ install_plugin() {
 
 install_plugins() {
 	local plugins="$(tpm_plugins_list_helper)"
-	# Do not hide clone failures behind a successful tmux command. TPM's
-	# installer is run by the dotfiles installer, which uses this exit status.
 	for plugin in $plugins; do
 		IFS='#' read -ra plugin <<< "$plugin"
 		install_plugin "${plugin[0]}" "${plugin[1]}"

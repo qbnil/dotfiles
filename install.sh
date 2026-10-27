@@ -329,18 +329,6 @@ done
 if command -v tmux &>/dev/null; then
     if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
         print_status "Installing tmux plugins..."
-        # A previous install run may have copied the config as root (or a
-        # manually run `sudo stow` may have made the plugin tree root-owned).
-        # TPM clones and updates as the normal user, so repair only this user
-        # data directory and ask for sudo only when ownership actually needs
-        # repair.
-        tmux_plugins="$HOME/.config/tmux/plugins"
-        if [ ! -w "$tmux_plugins" ] || [ ! -w "$tmux_plugins/tpm" ] || \
-           find "$tmux_plugins" -maxdepth 2 ! -user "$USER" -print -quit 2>/dev/null | grep -q .; then
-            print_warning "Tmux plugin directory is not writable by $USER"
-            sudo -v
-            sudo chown -R "$USER:$(id -gn)" "$tmux_plugins"
-        fi
         tmux_socket="dotfiles-install-$$"
         tmux_log="/tmp/dotfiles-tmux-plugins.log"
         tmux_ok=false
