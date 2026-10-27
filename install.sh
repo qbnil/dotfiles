@@ -450,24 +450,16 @@ mkdir -p "$HOME/.config/shell"
 # leave this one file stale or missing even though the installer can continue.
 # Ensure this environment file is always the exact repository version and is
 # linked back to the repo so future pulls update it automatically.
-# Repair self-referential/broken links and stale regular copies without using
-# readlink -f on the target (that fails on a symlink loop).
-if [ -L "$xdg_env" ]; then
-    target="$(readlink "$xdg_env" || true)"
-    case "$target" in
-        "$xdg_env_source") ;;
-        *) rm -f "$xdg_env"; ln -s "$xdg_env_source" "$xdg_env" ;;
-    esac
-elif [ -e "$xdg_env" ]; then
-    if ! cmp -s "$xdg_env" "$xdg_env_source"; then
-        print_warning "Backing up stale ~/.config/shell/xdg-env.sh"
-        mkdir -p "$BACKUP_DIR/conflicts/.config/shell"
-        mv "$xdg_env" "$BACKUP_DIR/conflicts/.config/shell/xdg-env.sh"
-    else
-        rm -f "$xdg_env"
+if [ ! -L "$xdg_env" ] || [ "$(readlink -f "$xdg_env" 2>/dev/null || true)" != "$xdg_env_source" ]; then
+    if [ -e "$xdg_env" ] || [ -L "$xdg_env" ]; then
+        if ! cmp -s "$xdg_env" "$xdg_env_source"; then
+            print_warning "Backing up stale ~/.config/shell/xdg-env.sh"
+            mkdir -p "$BACKUP_DIR/conflicts/.config/shell"
+            mv "$xdg_env" "$BACKUP_DIR/conflicts/.config/shell/xdg-env.sh"
+        else
+            rm -f "$xdg_env"
+        fi
     fi
-    ln -s "$xdg_env_source" "$xdg_env"
-else
     ln -s "$xdg_env_source" "$xdg_env"
 fi
 . "$xdg_env"
