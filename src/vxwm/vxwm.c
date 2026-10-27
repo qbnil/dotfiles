@@ -2465,8 +2465,8 @@ void
 tag(const Arg *arg)
 {
     if (selmon->sel && arg->ui & TAGMASK) {
-#if INFINITE_TAGS
         Client *c = selmon->sel;
+        #if INFINITE_TAGS
         unsigned int target_tag_mask = arg->ui & TAGMASK;
         int i;
 
@@ -2484,21 +2484,42 @@ tag(const Arg *arg)
         }
 #endif
 
-        selmon->sel->tags = arg->ui & TAGMASK;
+        c->tags = arg->ui & TAGMASK;
 		#if EWMH_TAGS
-		updatewmdesktop(selmon->sel);
+		updatewmdesktop(c);
 		#endif
-        focus(NULL);
-        arrange(selmon);
+
+		/* Moving a client to another tag should follow it when enabled.  The old behavior
+		 * left the current view on the old tag and focused whichever client
+		 * happened to be next there, making the moved window look lost. */
+		#if FOLLOW_TAGGED_WINDOW
+		unsigned int target = c->tags;
+		if (target != selmon->tagset[selmon->seltags]) {
+			Arg a = { .ui = target };
+			view(&a);
+		}
+		focus(c);
+		#endif
+		arrange(selmon);
     }
 }
 
 void
 tagmon(const Arg *arg)
 {
-	if (!selmon->sel || !mons->next)
+	Monitor *m;
+
+	if (!selmon->sel || !mons->next || (m = dirtomon(arg->i)) == selmon)
 		return;
-	sendmon(selmon->sel, dirtomon(arg->i));
+
+	/* Move the client and follow it to the destination monitor.  sendmon()
+	 * deliberately does not change selmon because it is also used while
+	 * managing clients and applying rules.  For the explicit Mod+Shift+,/.
+	 * action, however, leaving focus behind makes the moved window appear to
+	 * vanish and requires a second focus-monitor keystroke. */
+	sendmon(selmon->sel, m);
+	selmon = m;
+	focus(NULL);
 }
 
 void

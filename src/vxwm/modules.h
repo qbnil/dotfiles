@@ -43,6 +43,7 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 
 /* Tagging */
 #define TAG_TO_TAG 1 // If you switch to tag where you already are, it'll switch to previous tag.
+#define FOLLOW_TAGGED_WINDOW 1 // Follow a window when Mod+Shift+tag moves it.
 #define SLOWER_TAGS_ANIMATION 0 // This slows down tags animation speed, which results in smoother tags animations (requires picom to see any difference).
 #define WINDOWMAP 1
 /* This makes the windows get mapped or unmapped in X11. This results in certain
@@ -177,4 +178,3 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 /* Dependency list */
 /* INFINITE_TAGS requires WINDOWMAP, please set WINDOWMAP to 1, if not, it will be automatically enabled.
  * ENHANCED_TOGGLE_FLOATING requires FLOATING_LAYOUT_FLOATS_WINDOWS, please set FLOATING_LAYOUT_FLOATS_WINDOWS to 1, if not, it will be automatically enabled.  */
-
