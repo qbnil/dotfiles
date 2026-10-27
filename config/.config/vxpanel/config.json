@@ -1,0 +1,11 @@
+{
+ "wall_dir": "~/pictures/wallpapers",
+ "xc_shadow": true,
+ "xc_fade": false,
+ "xc_rad": 12,
+ "xc_op": 0.75,
+ "light": false,
+ "hook": "~/.local/bin/pywal16",
+ "post": "~/.local/bin/regenerate-gtk-theme.sh",
+ "nightlight_k": 6500
+}

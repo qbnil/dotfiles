@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """vxpanel - flat, lightweight floating control panel for dwm-style X11 setups (GTK3 + pywal).
-Usage: vxpanel [--page display|colors|theme|audio|input|notify|system|network|logs|docker|podman|distrobox|disk]
+Usage: vxpanel [--page personal|display|colors|theme|audio|input|notify|system|network|logs|docker|podman|distrobox|disk]
 Changes that X forgets on restart are saved to ~/.config/vxpanel/startup.sh - run it from your autostart.
 
 Session start never runs this script: startup.sh carries a plain `redshift -O`
@@ -93,7 +93,7 @@ def persist_nightlight():
 # needs them, and at session start they used to cost ~0.3s of visible
 # bright-neutral screen before the night light landed.
 import ctypes, ctypes.util
-import re, shlex, hashlib, configparser, threading, time, socket
+import re, shlex, hashlib, configparser, threading, time, socket, datetime, math
 from string import Template
 import gi
 gi.require_version("Gtk", "3.0")
@@ -218,6 +218,15 @@ button.danger, button.danger label { background-color: $bad; color: $onbad; }
 button.danger { border-color: $bad; }
 button.danger:hover, button.danger:hover label { background-color: $badh; color: $onbad; }
 .dlg checkbutton, .dlg checkbutton label { color: $fg; }
+/* Disable the overshoot/undershoot glow GTK draws when a scrolled page is
+   scrolled past its edge: it paints a translucent gradient over the text. */
+scrolledwindow undershoot, scrolledwindow overshoot,
+undershoot.top, undershoot.bottom, undershoot.left, undershoot.right,
+overshoot.top, overshoot.bottom, overshoot.left, overshoot.right {
+    background-image: none;
+    background-color: transparent;
+    box-shadow: none;
+}
 """)
 PROVIDER = Gtk.CssProvider()
 
@@ -320,6 +329,191 @@ def page(key, label):
 def reload_page(key, delay=300):
     """Reload a page with reduced delay for faster feedback."""
     GLib.timeout_add(delay, lambda: (WIN.reload(key), False)[1])
+
+# ---------------------------------------------------------------- Personal
+PERSONAL_DIR = H + "/.local/state/vxpanel"
+PERSONAL_FILE = PERSONAL_DIR + "/personal.json"
+
+def boot_id():
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f: return f.read().strip()
+    except Exception:
+        # Non-Linux fallback: a missing ID means a new session after restart.
+        return ""
+
+def personal_load():
+    try:
+        with open(PERSONAL_FILE) as f: data = json.load(f)
+    except Exception:
+        data = {}
+    data.setdefault("days", {})
+    data.setdefault("timer", {"name": "", "end": 0, "paused": False, "remaining": 0})
+    data.setdefault("stopwatch", {"started": 0, "elapsed": 0, "running": False})
+    # Keep the timer through vxpanel restarts, but reset it after an actual OS
+    # reboot. Linux's boot_id changes once per boot and is more reliable here
+    # than comparing wall-clock timestamps.
+    current_boot = boot_id()
+    session = data.get("session", {})
+    if session.get("boot_id") != current_boot:
+        data["session"] = {"started": time.time(), "elapsed": 0, "running": True, "boot_id": current_boot}
+    else:
+        session.setdefault("started", time.time())
+        session.setdefault("elapsed", 0)
+        session.setdefault("running", True)
+    return data
+
+PERSONAL = personal_load()
+
+def personal_save():
+    os.makedirs(PERSONAL_DIR, exist_ok=True)
+    tmp = PERSONAL_FILE + ".tmp"
+    with open(tmp, "w") as f: json.dump(PERSONAL, f, indent=2)
+    os.replace(tmp, PERSONAL_FILE)
+
+def today_data():
+    key = datetime.date.today().isoformat()
+    return PERSONAL["days"].setdefault(key, {"weight": None, "sleep": None, "calories": None})
+
+def fmt_duration(seconds):
+    seconds = max(0, int(seconds))
+    return "%02d:%02d:%02d" % (seconds // 3600, (seconds // 60) % 60, seconds % 60)
+
+class PersonalChart(Gtk.DrawingArea):
+    def __init__(self, values, color, suffix=""):
+        super().__init__(); self.values = values; self.color = color; self.suffix = suffix
+        self.set_size_request(-1, 150); self.connect("draw", self.draw_chart)
+    def draw_chart(self, _, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.set_source_rgba(0.08, 0.10, 0.14, 0.55); cr.rectangle(0, 0, w, h); cr.fill()
+        vals = [v for v in self.values if v is not None]
+        if not vals: return
+        lo, hi = min(vals), max(vals)
+        if hi == lo: lo, hi = lo - 1, hi + 1
+        cr.set_source_rgba(*self.color, 0.95); cr.set_line_width(3)
+        points = [(i * (w - 30) / max(1, len(self.values)-1) + 15,
+                   h - 20 - ((v-lo)/(hi-lo))*(h-40)) for i,v in enumerate(self.values) if v is not None]
+        if len(points) == 1:
+            cr.arc(points[0][0], points[0][1], 4, 0, 2*math.pi); cr.fill(); return
+        cr.move_to(*points[0])
+        for p in points[1:]: cr.line_to(*p)
+        cr.stroke()
+        for x, y in points:
+            cr.arc(x, y, 3, 0, 2*math.pi); cr.fill()
+
+@page("personal", "Personal")
+def personal_page():
+    root = Gtk.Box(orientation=VERT, spacing=12); root.set_margin_start(18); root.set_margin_end(18)
+    title = Gtk.Label(label="Personal dashboard", xalign=0); title.get_style_context().add_class("title"); root.pack_start(title, False, False, 0)
+    sub = Gtk.Label(label="Health, focus and daily progress — stored locally", xalign=0); sub.get_style_context().add_class("dim"); root.pack_start(sub, False, False, 0)
+
+    # Focus timers
+    focus = card(root, "Focus & time")
+    session_label = Gtk.Label(xalign=0); timer_label = Gtk.Label(xalign=0); sw_label = Gtk.Label(xalign=0)
+    for x in (session_label, timer_label, sw_label): x.get_style_context().add_class("metric"); focus.pack_start(x, False, False, 2)
+    preset = combo(["5 minutes", "10 minutes", "15 minutes", "20 minutes", "25 minutes", "30 minutes", "45 minutes", "1 hour", "2 hours"], "25 minutes")
+    start_timer = Gtk.Button(label="Start timer"); pause_timer = Gtk.Button(label="Pause"); stop_timer = Gtk.Button(label="Stop")
+    def duration_from_text(s):
+        n = int(s.split()[0]); return n * (3600 if "hour" in s else 60)
+    def start(_):
+        sec = duration_from_text(preset.get_active_text()); PERSONAL["timer"] = {"name": preset.get_active_text(), "end": time.time()+sec, "paused": False, "remaining": sec}; personal_save()
+    def pause(_):
+        t = PERSONAL["timer"]
+        if t["end"]: t["remaining"] = max(0, t["end"]-time.time()); t["end"] = 0; t["paused"] = True; personal_save()
+    def stop(_): PERSONAL["timer"] = {"name":"", "end":0, "paused":False, "remaining":0}; personal_save()
+    start_timer.connect("clicked", start); pause_timer.connect("clicked", pause); stop_timer.connect("clicked", stop)
+    btnrow(focus, preset, start_timer, pause_timer, stop_timer)
+    sw = Gtk.Button(label="Start / pause stopwatch"); reset_button = Gtk.Button(label="Reset")
+    def toggle_sw(_):
+        s = PERSONAL["stopwatch"]
+        if s["running"]: s["elapsed"] += time.time()-s["started"]; s["running"] = False
+        else: s["started"] = time.time(); s["running"] = True
+        personal_save()
+    def reset_stopwatch(_): PERSONAL["stopwatch"] = {"started":0,"elapsed":0,"running":False}; personal_save()
+    sw.connect("clicked", toggle_sw); reset_button.connect("clicked", reset_stopwatch); btnrow(focus, sw, reset_button)
+
+    # Daily inputs
+    health = card(root, "Today")
+    row = Gtk.Box(spacing=8)
+    day = today_data()
+    weight = spin(20, 300, day["weight"] or 70, .1, 1); sleep = spin(0, 24, day["sleep"] or 8, .1, 1); calories = spin(0, 10000, day["calories"] or 0, 50, 0)
+    # A newly-created or reset day has no measurements. Keep the controls
+    # blank rather than displaying defaults which would later become graph
+    # points even though the user never entered any data.
+    if day["weight"] is None: weight.set_text("")
+    if day["sleep"] is None: sleep.set_text("")
+    if day.get("calories") is None: calories.set_text("")
+    for label, widget in (("Weight kg", weight), ("Sleep hours", sleep), ("Calories", calories)):
+        col = Gtk.Box(orientation=VERT, spacing=3); col.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0); col.pack_start(widget, False, False, 0); row.pack_start(col, True, True, 0)
+    save_day = Gtk.Button(label="Save today")
+    def numeric_or_none(widget):
+        text = widget.get_text().strip()
+        if not text: return None
+        try: return float(text)
+        except ValueError: return widget.get_value()
+    def save_today(_):
+        weight_value = numeric_or_none(weight); sleep_value = numeric_or_none(sleep); calories_value = numeric_or_none(calories)
+        d = today_data(); d.update(weight=weight_value, sleep=sleep_value, calories=calories_value); personal_save()
+        # Refresh the existing chart widgets immediately. Do not reload the
+        # page: rebuilding the Gtk.Stack can briefly leave only the background
+        # visible and is unnecessary for a data-only change.
+        update_charts()
+        status("✓ Saved today: %s kg · %s h sleep · %s kcal" % (weight_value if weight_value is not None else "—", sleep_value if sleep_value is not None else "—", int(calories_value) if calories_value is not None else "—"))
+    save_day.connect("clicked", save_today); health.pack_start(row, False, False, 0)
+    def reset_today():
+        d = today_data(); d.update(weight=None, sleep=None, calories=None); personal_save()
+        weight.set_text(""); sleep.set_text(""); calories.set_text("")
+        update_charts(); status("✓ Today reset")
+    def reset_all():
+        if not confirm("Clear all tracked days (weight, sleep, calories)?"):
+            status("Reset all days cancelled")
+            return
+        PERSONAL["days"] = {}; personal_save()
+        weight.set_text(""); sleep.set_text(""); calories.set_text("")
+        update_charts(); status("✓ All days cleared")
+    reset_today_btn = btn("Reset today", reset_today)
+    reset_all_btn = btn("Reset all days", reset_all); cls(reset_all_btn, "danger")
+    # Keep all three actions in one row so Save today has the same padding and
+    # height as the reset buttons instead of inheriting the input-row layout.
+    btnrow(health, save_day, reset_today_btn, reset_all_btn)
+
+    # Charts
+    keys = sorted(PERSONAL["days"])[-14:]; days = [PERSONAL["days"][k] for k in keys]
+    charts = Gtk.Box(spacing=10)
+    chart_widgets = []
+    for label, field, color, suffix in (("Weight · last 14 days", "weight", (.35,.75,1), "kg"), ("Sleep · last 14 days", "sleep", (.70,.45,1), "h"), ("Calories · last 14 days", "calories", (1,.55,.25), "kcal")):
+        c = card(charts, label); graph = PersonalChart([d.get(field) for d in days], color, suffix); chart_widgets.append((graph, field)); c.pack_start(graph, True, True, 0); c.set_hexpand(True)
+    root.pack_start(charts, False, False, 0)
+    def update_charts():
+        keys = sorted(PERSONAL["days"])[-14:]
+        days = [PERSONAL["days"][k] for k in keys]
+        for graph, field in chart_widgets:
+            graph.values = [d.get(field) for d in days]
+            graph.queue_draw()
+    # Keep the charts visually separated from the controls below and leave
+    # comfortable breathing room at the bottom of the scrollable page.
+    chart_spacer = Gtk.Box(); chart_spacer.set_size_request(-1, 24)
+    root.pack_start(chart_spacer, False, False, 0)
+
+    last_session_minute = [-1]
+    def tick():
+        now = time.time(); s = PERSONAL["session"]; session = s["elapsed"] + (now-s["started"] if s["running"] else 0)
+        # Session duration intentionally changes only once per minute; timers
+        # and the stopwatch remain live and can still update every second.
+        session_minute = int(session) // 60
+        if session_minute != last_session_minute[0]:
+            last_session_minute[0] = session_minute
+            session_label.set_text("Current session   %02d:%02d" % (session_minute // 60, session_minute % 60))
+        t = PERSONAL["timer"]; left = t["remaining"] if t["paused"] or not t["end"] else max(0, t["end"]-now); timer_label.set_text(("Timer · %s   " % t["name"] if t["name"] else "Timer   ") + fmt_duration(left))
+        swd = PERSONAL["stopwatch"]; elapsed = swd["elapsed"] + (now-swd["started"] if swd["running"] else 0); sw_label.set_text("Stopwatch   " + fmt_duration(elapsed))
+        if t["end"] and left <= 0:
+            PERSONAL["timer"] = {"name":"", "end":0, "paused":False, "remaining":0}; personal_save()
+            # Critical urgency makes the completion visible through dunst and
+            # keeps it on screen until acknowledged, when supported by the
+            # notification daemon.
+            bg(["notify-send", "-u", "critical", "-a", "vxpanel", "-i", "dialog-information", "Timer finished", "Your session is complete"])
+        return True
+    GLib.timeout_add(1000, tick); tick()
+    return root
 
 # ---------------------------------------------------------------- Display
 def parse_xrandr():
@@ -440,7 +634,7 @@ def colors():
 
     c = card(b, "Wallpaper")
     st = {"gen": 0, "paths": []}
-    folder = CFG.get("wall_dir") or (H + "/Pictures/Wallpapers" if os.path.isdir(H + "/Pictures/Wallpapers") else H + "/Pictures")
+    folder = os.path.expanduser(CFG.get("wall_dir", "").strip()) or (H + "/Pictures/Wallpapers" if os.path.isdir(H + "/Pictures/Wallpapers") else H + "/Pictures")
     fc = Gtk.FileChooserButton(title="Wallpaper folder", action=Gtk.FileChooserAction.SELECT_FOLDER)
     if os.path.isdir(folder): fc.set_filename(folder)
     row(c, "Folder", fc)
@@ -3001,7 +3195,18 @@ class Panel(Gtk.Window):
         ch = self.stack.get_child_by_name(key)
         if ch: self.stack.remove(ch)
         self.built.discard(key)
-        self.select(None, self.side.get_selected_row())
+        # Do not route through row-selected here. Removing the visible child
+        # can emit a selection change while the stack is empty, which used to
+        # leave the window showing only its background after Save/Reset.
+        page_fn = next((fn for page_key, _, fn in PAGES if page_key == key), None)
+        if page_fn is None: return
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sc.add(page_fn())
+        self.stack.add_named(sc, key)
+        sc.show_all()
+        self.built.add(key)
+        self.stack.set_visible_child_name(key)
 
 def main():
     global WIN
