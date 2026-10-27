@@ -4,7 +4,9 @@ frame_color = "#0d0c0b"
 separator_color = frame
 notification_limit = 6
 origin = top-right
-offset = 10x10
+# Leave room for the 34px vxwm bar (plus its 3px top padding): notifications
+# used to start at y=10 and the top of tall popups sat behind the bar.
+offset = 10x44
 icon_corner_radius = 10
 transparency = 0
 frame_width = 1
@@ -28,4 +30,3 @@ background = "#212123"
 foreground = "#ccd0d9"
 background = "#212123"
 frame_color = "#8ab4f8"
-

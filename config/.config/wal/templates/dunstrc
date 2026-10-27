@@ -4,7 +4,8 @@ frame_color = "{color4}"
 separator_color = frame
 notification_limit = 6
 origin = top-right
-offset = 10x10
+# Keep notifications below the 34px vxwm bar and its 3px top padding.
+offset = 10x44
 icon_corner_radius = 10
 transparency = 0
 frame_width = 1

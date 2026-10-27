@@ -46,6 +46,9 @@ fi
     if [ -f "$CACHE/wal/dunstrc" ]; then
         mkdir -p "$HOME/.config/dunst/dunstrc.d"
         cp "$CACHE/wal/dunstrc" "$HOME/.config/dunst/dunstrc.d/90-pywal.conf"
+        # The generated fragment owns colors only. Keep its geometry below the
+        # vxwm bar so a later pywal run cannot restore the old 10px offset.
+        sed -i 's/^offset = .*/offset = 10x44/' "$HOME/.config/dunst/dunstrc.d/90-pywal.conf"
         pkill -x dunst 2>/dev/null; (dunst >/dev/null 2>&1 &)
     fi
 ) &
