@@ -166,6 +166,9 @@ install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 | Resize floating window | `Alt+Ctrl+Shift` + `h/j/k/l` | Keyboard resize (50 px steps). |
 | Toggle floating | `Alt+Shift+Space` | `togglefloating`. |
 | Enhanced toggle floating | `Alt+e` | `enhancedtogglefloating`. |
+| Window chooser | `Alt+Tab` / `Alt+Shift+Tab` | `dmenu-win`: searchable window list, most recently used first. |
+| Cycle all windows | `Alt+\` / `Alt+Shift+\` | `alttaball`: cycles every visible window, tiled and floating. |
+| Cycle floating windows | ``Alt+` `` / ``Alt+Shift+` `` | `alttab`: cycles only floating windows. |
 | Monocle position indicator | — | The bar shows `[i/n]` (e.g. `[3/5]`) — the focused window's position among the visible windows — and updates immediately on every focus change. |
 | **Minimal floating canvas** | `Super+F` (`Mod+F`) | Floating mode allows free move/resize with overlaps; no automatic pushing or reflow on move/resize. Initial spread is preserved on entry, and pressing `Mod+F` restores the stacked spread layout and reveals the focused window. |
 

@@ -576,7 +576,7 @@ if [ -d "$DOTFILES_DIR/src/zlstatus" ]; then
 fi
 
 cd "$DOTFILES_DIR"
-for b in vxwm dmenu st zlstatus nsxiv; do
+for b in vxwm dmenu st zlstatus nsxiv dmenu-win; do
     if [ -x "$HOME/.local/bin/$b" ] && ldd "$HOME/.local/bin/$b" 2>/dev/null | grep -q 'not found'; then
         print_warning "$b has unresolved libraries:"
         ldd "$HOME/.local/bin/$b" | grep 'not found' || true
@@ -697,6 +697,15 @@ systemctl --user enable --now pipewire pipewire-pulse wireplumber 2>/dev/null \
 systemctl --user enable --now mpd 2>/dev/null \
     || print_warning "Could not enable mpd now; it will start on next login"
 
+# zlstatus draws the vxwm bar text. Enable it so it also starts under a display
+# manager; xinitrc restarts it once X is up. The unit runs the installed
+# ~/.local/bin/zlstatus, which install.sh builds below.
+if [ -f "$HOME/.config/systemd/user/zlstatus.service" ]; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user enable zlstatus.service 2>/dev/null \
+        || print_warning "Could not enable zlstatus.service; it will be started by xinitrc"
+fi
+
 # Don't fight an existing network stack: switching to NetworkManager while
 # systemd-networkd/dhcpcd/iwd manages the VM's NIC can kill the connection.
 if systemctl is-active --quiet systemd-networkd 2>/dev/null \
@@ -803,7 +812,7 @@ fi
 
 print_status "Summary of installed programs:"
 echo "  Custom programs:"
-for prog in vxwm dmenu st nsxiv zlstatus; do
+for prog in vxwm dmenu st nsxiv zlstatus dmenu-win; do
     if [ -x "$HOME/.local/bin/$prog" ]; then
         echo "    ✓ $prog -> ~/.local/bin/$prog"
     else
