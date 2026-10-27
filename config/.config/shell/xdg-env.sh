@@ -92,9 +92,9 @@ export PATH
 
 
 # SSH agent
-[ -z "${SSH_AUTH_SOCK:-}" ] && [ -f /tmp/ssh-agent.env ] && . /tmp/ssh-agent.env 2>/dev/null
-[ -z "${SSH_AUTH_SOCK:-}" ] && SSH_AUTH_SOCK=$(find /home/kent/.ssh/agent -name "agent.*" 2>/dev/null | head -1) && [ -n "$SSH_AUTH_SOCK" ] && export SSH_AUTH_SOCK
-[ -z "${SSH_AGENT_PID:-}" ] && [ -n "${SSH_AUTH_SOCK:-}" ] && SSH_AGENT_PID=$(basename "$SSH_AUTH_SOCK" | awk -F. '{print $NF}') 2>/dev/null && export SSH_AGENT_PID
+[ -z "$SSH_AUTH_SOCK" ] && [ -f /tmp/ssh-agent.env ] && . /tmp/ssh-agent.env 2>/dev/null
+[ -z "$SSH_AUTH_SOCK" ] && SSH_AUTH_SOCK=$(find /home/kent/.ssh/agent -name "agent.*" 2>/dev/null | head -1) && [ -n "$SSH_AUTH_SOCK" ] && export SSH_AUTH_SOCK
+[ -z "$SSH_AGENT_PID" ] && [ -n "$SSH_AUTH_SOCK" ] && SSH_AGENT_PID=$(basename "$SSH_AUTH_SOCK" | awk -F. '{print $NF}') 2>/dev/null && export SSH_AGENT_PID
 
 # SSH agent persistent
-[ -z "${SSH_AUTH_SOCK:-}" ] && [ -f "$HOME/.ssh/agent-env.sh" ] && . "$HOME/.ssh/agent-env.sh" 2>/dev/null
+[ -z "$SSH_AUTH_SOCK" ] && [ -f "$HOME/.ssh/agent-env.sh" ] && . "$HOME/.ssh/agent-env.sh" 2>/dev/null
