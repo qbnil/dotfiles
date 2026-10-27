@@ -1,0 +1,16 @@
+[Unit]
+Description=zlstatus X11 status bar
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.config/zlstatus/zig-out/bin/zlstatus
+Restart=always
+RestartSec=1
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

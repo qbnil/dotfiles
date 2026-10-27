@@ -27,6 +27,8 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/inotify.h>
+#include <sys/signalfd.h>
+int zl_signalfd(int fd, const sigset_t *mask, int flags) { return signalfd(fd, mask, flags); }
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <linux/netlink.h>

@@ -208,14 +208,27 @@ fn readTime() void {
 var timerfd: c_int = -1;
 var g_epollfd: c_int = -1;
 const MAX_EVENTS = 8;
-/// Monotonic seconds including suspend (CLOCK_BOOTTIME), only used to notice a
-/// resume on the existing 60s tick. It is not a network poll.
+/// Monotonic seconds including suspend (CLOCK_BOOTTIME), used to notice a
+/// resume on the existing clock tick.
 var last_monotonic: i64 = 0;
 
 fn bootSec() i64 {
     var ts: c.timespec = undefined;
     if (c.clock_gettime(c.CLOCK_BOOTTIME, &ts) != 0) return 0;
     return ts.tv_sec;
+}
+
+/// Arm the minute clock as a one-shot against CLOCK_BOOTTIME. Unlike a periodic
+/// timer, this recalculates the next wall-clock minute after every wake and
+/// therefore cannot drift or wait a full minute after suspend/NTP adjustment.
+fn armMinuteTimer() void {
+    readTime();
+    var its: c.itimerspec = std.mem.zeroes(c.itimerspec);
+    its.it_value.tv_sec = 60 - @rem(fTime.tv_sec, 60) - 1;
+    its.it_value.tv_nsec = @as(c_long, 1e9) - fTime.tv_nsec;
+    its.it_interval.tv_sec = 60;
+    if (c.timerfd_settime(timerfd, 0, &its, null) < 0)
+        @panic("timerfd_settime");
 }
 
 fn monoMs() i64 {
@@ -1089,6 +1102,46 @@ fn netHandleEvent() void {
 // power_supply changes are acted on.
 var ueventfd: c_int = -1;
 
+// systemd-sleep sends SIGUSR1 after resume. signalfd turns that notification
+// into a normal epoll event without a signal-handler race or a periodic poll.
+var resumefd: c_int = -1;
+
+fn resumeInit() void {
+    var mask: c.sigset_t = undefined;
+    _ = c.sigemptyset(&mask);
+    _ = c.sigaddset(&mask, c.SIGUSR1);
+    _ = c.sigprocmask(c.SIG_BLOCK, &mask, null);
+    resumefd = c.zl_signalfd(-1, &mask, c.SFD_NONBLOCK | c.SFD_CLOEXEC);
+    if (resumefd < 0) {
+        netLog("signalfd() failed: errno {d}", .{c.__errno_location().*});
+        return;
+    }
+    var event = c.epoll_event{
+        .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
+        .data = .{ .u64 = @intFromEnum(Event.Resume) },
+    };
+    if (c.epoll_ctl(g_epollfd, c.EPOLL_CTL_ADD, resumefd, &event) < 0) {
+        netLog("signalfd epoll registration failed: errno {d}", .{c.__errno_location().*});
+        _ = c.close(resumefd);
+        resumefd = -1;
+    }
+}
+
+fn resumeHandle() void {
+    var info: [128]u8 = undefined;
+    while (c.read(resumefd, &info, info.len) > 0) {}
+    readTime();
+    readBatCapacity();
+    readBatStatus();
+    if (master_elem) |elem| _ = readMasterVolume(elem, 0);
+    probeClose();
+    probe_state = .unknown;
+    probe_failures = 0;
+    netRefresh();
+    probeKick();
+    netLog("resume signal handled: refreshed time/audio/network/battery", .{});
+}
+
 fn ueventInit() void {
     ueventfd = c.socket(c.AF_NETLINK, c.SOCK_DGRAM | c.SOCK_NONBLOCK, c.NETLINK_KOBJECT_UEVENT);
     if (ueventfd < 0) {
@@ -1498,15 +1551,7 @@ pub fn main() u8 {
 
     readTime();
 
-    const itval = c.itimerspec{ .it_value = .{
-        .tv_sec = 60 - @rem(fTime.tv_sec, 60) - 1,
-        .tv_nsec = @as(c_long, 1e9) - fTime.tv_nsec,
-    }, .it_interval = .{
-        .tv_sec = 60,
-        .tv_nsec = 0,
-    } };
-    if (c.timerfd_settime(timerfd, 0, &itval, null) < 0)
-        @panic("timerfd_settime");
+    armMinuteTimer();
 
     var event = c.epoll_event{
         .events = @as(u32, c.EPOLLIN) | c.EPOLLET,
@@ -1580,6 +1625,7 @@ pub fn main() u8 {
     netInit();
     dnsInit();
     probeInit();
+    resumeInit();
 
     // Charger plug/unplug uevents (power_supply class) - non-fatal
     ueventInit();
@@ -1606,7 +1652,7 @@ pub fn main() u8 {
     while (true) {
         for (0..@intCast(c.epoll_wait(epollfd, &events, MAX_EVENTS, -1))) |i| {
             const ev: c.epoll_event = events[i];
-            if (ev.data.u64 > @intFromEnum(Event.ProbeTimer)) continue;
+            if (ev.data.u64 > @intFromEnum(Event.Resume)) continue;
             @as(Event, @enumFromInt(ev.data.u64)).handleEvent();
         }
         writeStatus();
@@ -1624,12 +1670,16 @@ const Event = enum(u8) {
     Uevent,
     ProbeSocket,
     ProbeTimer,
+    Resume,
 
     fn handleTimeout1m() void {
         readTime();
         // Consume amount of expirations from fd
         var exp_count: u64 = undefined;
         _ = c.read(timerfd, &exp_count, @sizeOf(u64));
+        // Re-arm against realtime: BOOTTIME timerfd wakes across suspend, and
+        // recomputing avoids stale minute alignment after resume or clock set.
+        armMinuteTimer();
         readBatCapacity();
         readBatStatus();
 
@@ -1682,6 +1732,7 @@ const Event = enum(u8) {
             .Uevent => handleUevent(),
             .ProbeSocket => probeSocketHandle(),
             .ProbeTimer => probeTimerHandle(),
+            .Resume => resumeHandle(),
         }
     }
 };
