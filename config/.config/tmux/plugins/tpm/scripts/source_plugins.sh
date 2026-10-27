@@ -21,7 +21,10 @@ silently_source_all_tmux_files() {
 			# unexpanded glob which obviously doesn't exist
 			[ -f "$tmux_file" ] || continue
 			# runs *.tmux file as an executable
-			$tmux_file >/dev/null 2>&1
+			# Plugin files are tracked as regular files in the dotfiles tree, so
+			# their executable bit is not guaranteed after Stow. Run them through
+			# bash instead of relying on filesystem permissions.
+			bash "$tmux_file" >/dev/null 2>&1
 		done
 	fi
 }
