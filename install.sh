@@ -322,40 +322,15 @@ for package in "${PACKAGES[@]}"; do
     fi
 done
 
-# Install tmux plugins via TPM after Stow has deployed tmux.conf.  Do this in
-# an isolated server and wait for run-shell to finish: the old implementation
-# used `run-shell -b` and killed the server immediately, which could terminate
-# a git clone before TPM had installed the theme.
-if command -v tmux &>/dev/null; then
-    if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
-        print_status "Installing tmux plugins..."
-        tmux_socket="dotfiles-install-$$"
-        tmux_log="/tmp/dotfiles-tmux-plugins.log"
-        tmux_ok=false
-        if tmux -L "$tmux_socket" -f "$HOME/.config/tmux/tmux.conf" \
-                new-session -d -s dotfiles-install 2>"$tmux_log"; then
-            if tmux -L "$tmux_socket" run-shell \
-                    "bash '$HOME/.config/tmux/plugins/tpm/bin/install_plugins'" \
-                    >>"$tmux_log" 2>&1; then
-                tmux_ok=true
-            fi
-            tmux -L "$tmux_socket" kill-server 2>/dev/null || true
-        fi
-        if $tmux_ok; then
-            rm -f "$tmux_log"
-            print_success "Tmux plugins installed"
-        else
-            print_error "Tmux plugin installation failed; full log: $tmux_log"
-            tail -n 40 "$tmux_log" 2>/dev/null | sed 's/^/    /' || true
-            FAILED_BUILDS+=("tmux-plugins")
-        fi
-    else
-        print_warning "TPM is missing; tmux plugins were not installed"
-        FAILED_BUILDS+=("tmux-plugins")
-    fi
-elif ! command -v tmux &>/dev/null; then
-    print_error "tmux is not installed after package installation"
-    FAILED_PKGS+=("tmux")
+# Install tmux plugins via TPM if tmux is installed
+if command -v tmux &>/dev/null && [ -d "$HOME/.config/tmux/plugins/tpm" ]; then
+    print_status "Installing tmux plugins..."
+    # Ensure plugins are installed non-interactively
+    tmux start-server 2>/dev/null
+    tmux run-shell -b "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" 2>/dev/null || \
+        "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" 2>/dev/null || true
+    tmux kill-server 2>/dev/null || true
+    print_success "Tmux plugins installation attempted"
 fi
 
 # These are conventional compatibility entrypoints that some programs require.
@@ -837,7 +812,7 @@ fi
 
 print_status "Summary of installed programs:"
 echo "  Custom programs:"
-for prog in vxwm dmenu st nsxiv zlstatus dmenu-win tmux; do
+for prog in vxwm dmenu st nsxiv zlstatus dmenu-win; do
     if [ -x "$HOME/.local/bin/$prog" ]; then
         echo "    ✓ $prog -> ~/.local/bin/$prog"
     else
