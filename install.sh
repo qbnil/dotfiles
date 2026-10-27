@@ -286,7 +286,8 @@ stow_pkg() {
     if [ -n "$sim" ] && printf '%s\n' "$sim" | grep -qiE 'existing target|over existing target|conflict'; then
         conflicts="$(printf '%s\n' "$sim" | sed -n -E \
             -e 's/^[[:space:]]*\* existing target (is neither a link nor a directory|is not owned by stow): (.*)$/\2/p' \
-            -e 's/^.*over existing target (.*) since .*$/\1/p')"
+            -e 's/^.*over existing target (.*) since .*$/\1/p' \
+            -e 's/^.*existing target (.*) since .*$/\1/p')"
         if [ -z "$conflicts" ]; then
             print_error "Stow problem in '$pkg':"
             printf '%s\n' "$sim" >&2
