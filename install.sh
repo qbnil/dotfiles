@@ -286,8 +286,8 @@ stow_pkg() {
     if [ -n "$sim" ] && printf '%s\n' "$sim" | grep -qiE 'existing target|over existing target|conflict'; then
         conflicts="$(printf '%s\n' "$sim" | sed -n -E \
             -e 's/^[[:space:]]*\* existing target (is neither a link nor a directory|is not owned by stow): (.*)$/\2/p' \
-            -e 's/^.*over existing target (.*) since .*$/\1/p' \
-            -e 's/^.*existing target (.*) since .*$/\1/p')"
+            -e 's/^.*over existing target ([^ ]+) since .*$/\1/p' \
+            -e 's/^.*existing target ([^ ]+) since .*$/\1/p')"
         if [ -z "$conflicts" ]; then
             print_error "Stow problem in '$pkg':"
             printf '%s\n' "$sim" >&2
@@ -342,17 +342,25 @@ if command -v tmux &>/dev/null; then
             sudo -v
             sudo chown -R "$USER:$(id -gn)" "$tmux_plugins"
         fi
-        tmux_socket="dotfiles-install-$$"
         tmux_log="/tmp/dotfiles-tmux-plugins.log"
         tmux_ok=false
-        if tmux -L "$tmux_socket" -f "$HOME/.config/tmux/tmux.conf" \
+        tmux_was_running=false
+        tmux list-sessions >/dev/null 2>&1 && tmux_was_running=true || true
+        # TPM helper scripts call plain `tmux` internally. Do not use a custom
+        # -L socket here: those calls would inspect a different server and
+        # report TMUX_PLUGIN_MANAGER_PATH as unknown.
+        if tmux -f "$HOME/.config/tmux/tmux.conf" \
                 new-session -d -s dotfiles-install 2>"$tmux_log"; then
-            if tmux -L "$tmux_socket" run-shell \
+            if tmux run-shell \
                     "bash '$HOME/.config/tmux/plugins/tpm/bin/install_plugins'" \
                     >>"$tmux_log" 2>&1; then
                 tmux_ok=true
             fi
-            tmux -L "$tmux_socket" kill-server 2>/dev/null || true
+            if ! $tmux_was_running; then
+                tmux kill-server 2>/dev/null || true
+            else
+                tmux kill-session -t dotfiles-install 2>/dev/null || true
+            fi
         fi
         if $tmux_ok; then
             rm -f "$tmux_log"
