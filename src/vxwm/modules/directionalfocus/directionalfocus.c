@@ -109,5 +109,8 @@ focusdir(const Arg *arg)
 		warptoclient(f);
 #endif
 		restack(f->mon);
+#if RAISE_OVERLAP
+		raiseoverlap(f);
+#endif
 	}
 }

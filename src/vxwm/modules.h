@@ -137,6 +137,18 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 #endif
 */
 
+#define RAISE_OVERLAP 1
+/* Windows-OS style switching: when you switch to a window (click it, reach it
+   with the keyboard focus keys or alt-tab, or pick it in a panel) and another
+   window lies on top of it, the switched-to window rises above the one
+   covering it, like clicking a buried window in Windows pops it to the front.
+   Only windows that really overlap each other are reordered, so pure tiling
+   never raises anything (tiled windows do not cover each other); a floating
+   window over a tiled one and floats stacked on floats are the cases that
+   count. The raise is minimal: the window lands just above its topmost
+   coverer, so unrelated windows keep their order. Hovering only moves focus
+   and never raises. */
+
 #define OPACITY 1
 /* Per-window transparency through _NET_WM_WINDOW_OPACITY. Needs a compositor in
    client-side mode (xcompmgr -c or vcompmgr -c) to be visible. Focused and

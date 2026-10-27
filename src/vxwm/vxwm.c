@@ -667,8 +667,17 @@ buttonpress(XEvent *e)
 			click = ClkWinTitle;
 		}
 	} else if ((c = wintoclient(ev->window))) {
-		focus(c);
-		restack(selmon);
+		/* With hover focus the clicked window is usually already sel. Running
+		 * focus() again would pan the floating canvas (floatreveal) under the
+		 * pointer, so only a real switch runs the normal focus path. */
+		if (c != selmon->sel) {
+			focus(c);
+			restack(selmon);
+		}
+#if RAISE_OVERLAP
+		/* the window just switched to surfaces from under its coverers */
+		raiseoverlap(c);
+#endif
 		if (ev->button != Button4 && ev->button != Button5)
 			XAllowEvents(dpy, ReplayPointer, CurrentTime);
 		click = ClkClientWin;
@@ -774,6 +783,9 @@ clientmessage(XEvent *e)
 				view(&a);
 			focus(c);
 			restack(selmon);
+#if RAISE_OVERLAP
+			raiseoverlap(c);
+#endif
 		}
 	}
 }
@@ -1258,6 +1270,9 @@ focusstack(const Arg *arg)
     warptoclient(c);
 #endif   
 		restack(selmon);
+#if RAISE_OVERLAP
+		raiseoverlap(c);
+#endif
 	}
 }
 
@@ -1340,6 +1355,17 @@ grabbuttons(Client *c, int focused)
 		if (!focused)
 			XGrabButton(dpy, AnyButton, AnyModifier, c->win, False,
 				BUTTONMASK, GrabModeSync, GrabModeSync, None, None);
+#if RAISE_OVERLAP
+		else
+			/* Hover focus can focus a window before its plain left click
+			 * reaches the WM. Grab that one button on focused windows too, so
+			 * the click path can surface a buried window before replaying the
+			 * event to the client. Only Button1: the wheel must keep reaching
+			 * the client, and the modifier grabs below handle move and resize. */
+			for (j = 0; j < LENGTH(modifiers); j++)
+				XGrabButton(dpy, Button1, modifiers[j], c->win, False,
+					BUTTONMASK, GrabModeSync, GrabModeSync, None, None);
+#endif
 		for (i = 0; i < LENGTH(buttons); i++)
 			if (buttons[i].click == ClkClientWin)
 				for (j = 0; j < LENGTH(modifiers); j++)
@@ -2794,8 +2820,12 @@ floatfocus(int dir)
 				best = c; bs = sc; bt = tie;
 			}
 		}
-	if (best)
+	if (best) {
 		focus(best);
+#if RAISE_OVERLAP
+		raiseoverlap(best);
+#endif
+	}
 	return 1;
 }
 
@@ -2974,8 +3004,12 @@ focusstrip(const Arg *arg)
 		if (i != sel)
 			c = NULL;
 	}
-	if (c)
+	if (c) {
 		focus(c); /* focus() re-arranges, which scrolls the strip */
+#if RAISE_OVERLAP
+		raiseoverlap(c);
+#endif
+	}
 }
 
 /* Mod+Ctrl+h / Mod+Ctrl+l. In [H] / [V] this resizes ONLY the focused window along

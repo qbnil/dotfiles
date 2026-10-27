@@ -129,9 +129,15 @@ alttabcycle(const Arg *arg, int floatsonly)
                         /*
                          * Explicitly raise the selected client above other
                          * X windows, including floating clients when the
-                         * selected client is tiled.
+                         * selected client is tiled. RAISE_OVERLAP swaps the
+                         * blanket raise for the surgical one: the client is
+                         * lifted only over windows that actually cover it.
                          */
+#if RAISE_OVERLAP
+                        raiseoverlap(t);
+#else
                         XRaiseWindow(dpy, t->win);
+#endif
                         XSetInputFocus(dpy, t->win, RevertToPointerRoot,
                                        CurrentTime);
                         XFlush(dpy);

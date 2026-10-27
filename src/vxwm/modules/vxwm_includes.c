@@ -64,6 +64,10 @@
 #include "alttab/alttab.c"
 #endif
 
+#if RAISE_OVERLAP
+#include "raiseoverlap/raiseoverlap.c"
+#endif
+
 #if OPACITY
 #include "opacity/opacity.c"
 #endif
