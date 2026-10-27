@@ -442,45 +442,34 @@ fi
 # Lowercase user directories are defined once, in ~/.config/user-dirs.dirs
 # (stowed from config/). xdg-env.sh exports them as XDG_*_DIR.
 print_status "Creating lowercase user directories..."
-# Stow the shell package on its own at ~/.config/shell. The broad config
-# package can abort atomically on unrelated legacy conflicts, so do this
-# explicit package deployment before sourcing xdg-env.sh.
-shell_pkg="$DOTFILES_DIR/config/.config/shell"
+# shellcheck source=/dev/null
 xdg_env="$HOME/.config/shell/xdg-env.sh"
+xdg_env_source="$DOTFILES_DIR/config/.config/shell/xdg-env.sh"
 mkdir -p "$HOME/.config/shell"
-# Remove incorrect links created by old installer attempts (wrong target was
-# ~/.config rather than ~/.config/shell).
-for bad_link in "$HOME/.config/xdg-env.sh" "$HOME/.config/alias"; do
-    case "$(readlink "$bad_link" 2>/dev/null || true)" in
-        *dotfiles/config/.config/shell/*) rm -f "$bad_link" ;;
+# The package can contain many legacy Stow conflicts; an earlier Stow run may
+# leave this one file stale or missing even though the installer can continue.
+# Ensure this environment file is always the exact repository version and is
+# linked back to the repo so future pulls update it automatically.
+# Repair self-referential/broken links and stale regular copies without using
+# readlink -f on the target (that fails on a symlink loop).
+if [ -L "$xdg_env" ]; then
+    target="$(readlink "$xdg_env" || true)"
+    case "$target" in
+        "$xdg_env_source") ;;
+        *) rm -f "$xdg_env"; ln -s "$xdg_env_source" "$xdg_env" ;;
     esac
-done
-for file in alias xdg-env.sh; do
-    target="$HOME/.config/shell/$file"
-    source="$shell_pkg/$file"
-    [ -f "$source" ] || continue
-    if [ -L "$target" ]; then
-        link_target="$(readlink "$target" || true)"
-        case "$link_target" in
-            *dotfiles/config/.config/shell/*) rm -f "$target" ;;
-            *)
-                print_warning "Backing up non-Stow ~/.config/shell/$file link"
-                mkdir -p "$BACKUP_DIR/conflicts/.config/shell"
-                mv "$target" "$BACKUP_DIR/conflicts/.config/shell/$file"
-                ;;
-        esac
-    elif [ -e "$target" ]; then
-        if ! cmp -s "$target" "$source"; then
-            print_warning "Backing up existing ~/.config/shell/$file before Stow"
-            mkdir -p "$BACKUP_DIR/conflicts/.config/shell"
-            mv "$target" "$BACKUP_DIR/conflicts/.config/shell/$file"
-        else
-            rm -f "$target"
-        fi
+elif [ -e "$xdg_env" ]; then
+    if ! cmp -s "$xdg_env" "$xdg_env_source"; then
+        print_warning "Backing up stale ~/.config/shell/xdg-env.sh"
+        mkdir -p "$BACKUP_DIR/conflicts/.config/shell"
+        mv "$xdg_env" "$BACKUP_DIR/conflicts/.config/shell/xdg-env.sh"
+    else
+        rm -f "$xdg_env"
     fi
-done
-stow -d "$DOTFILES_DIR/config/.config" -t "$HOME/.config/shell" -R shell
-[ -L "$xdg_env" ] || { print_error "Stow did not link xdg-env.sh"; exit 1; }
+    ln -s "$xdg_env_source" "$xdg_env"
+else
+    ln -s "$xdg_env_source" "$xdg_env"
+fi
 . "$xdg_env"
 
 # Move leftovers from the capitalised defaults (~/Downloads -> ~/downloads, ...)
