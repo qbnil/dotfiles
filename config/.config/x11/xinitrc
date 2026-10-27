@@ -20,9 +20,14 @@ xinput --set-prop 'pointer:''compx L7 Air' 'libinput Accel Speed' 0 &
 # helper xinitrc, rvx and pywal16 all use, so the order never drifts.
 "$HOME/.local/bin/xrdb-reload"
 
-# Always use the installed dotfiles build. Do not launch the development binary
-# from ~/.config/zlstatus/zig-out; it can remain stale after a rebuild.
-"$HOME/.local/bin/zlstatus" &
+# Let the user service manager supervise zlstatus and restart it if it exits.
+# The unit runs the installed ~/.local/bin build, never the stale development
+# binary in ~/.config/zlstatus/zig-out. If the user bus is unavailable (a bare
+# startx without a login manager), fall back to running the same binary here.
+systemctl --user daemon-reload 2>/dev/null || true
+if ! systemctl --user restart zlstatus.service 2>/dev/null; then
+    "$HOME/.local/bin/zlstatus" &
+fi
 
 # Wallpaper: reuse the cached path from the last time wal set one
 # (~/.cache/wal/wal is a plain-text file containing that path) and blit it
