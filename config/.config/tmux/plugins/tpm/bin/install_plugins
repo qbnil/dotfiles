@@ -8,16 +8,6 @@
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SCRIPTS_DIR="$CURRENT_DIR/../scripts"
 
-# TPM reads @plugin and TMUX_PLUGIN_MANAGER_PATH from the user's tmux server.
-# Running this script with sudo changes HOME to /root and starts a different
-# tmux configuration, which produces the misleading "not configured" error.
-if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-	echo "Do not run TPM with sudo. Run it as your normal user from inside tmux:" >&2
-	echo "  Prefix + I" >&2
-	echo "or let ~/dotfiles/install.sh run it." >&2
-	exit 1
-fi
-
 main() {
 	bash "$SCRIPTS_DIR/install_plugins.sh" # has correct exit code
 }
