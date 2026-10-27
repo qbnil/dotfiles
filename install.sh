@@ -295,12 +295,6 @@ stow_pkg() {
         fi
         while IFS= read -r f; do
             [ -n "$f" ] || continue
-            # A directory may be reported because only one child conflicts.
-            # Preserve the whole existing path only when it is a leaf conflict;
-            # backing up a parent directory removes unrelated stowed siblings.
-            if [ -d "$HOME/$f" ] && [ ! -L "$HOME/$f" ]; then
-                continue
-            fi
             print_warning "~/$f exists; moving it to backup"
             mkdir -p "$BACKUP_DIR/conflicts/$(dirname "$f")"
             mv "$HOME/$f" "$BACKUP_DIR/conflicts/$f"
@@ -355,22 +349,8 @@ if command -v tmux &>/dev/null; then
         # TPM helper scripts call plain `tmux` internally. Do not use a custom
         # -L socket here: those calls would inspect a different server and
         # report TMUX_PLUGIN_MANAGER_PATH as unknown.
-        if $tmux_was_running; then
-            # `-f` is ignored by an already-running server. Explicitly source
-            # the just-stowed config so TPM's @plugin declarations and global
-            # plugin path exist on that server too.
-            tmux source-file "$HOME/.config/tmux/tmux.conf" >>"$tmux_log" 2>&1 || true
-            tmux set-environment -g TMUX_PLUGIN_MANAGER_PATH "$tmux_plugins/" \
-                >>"$tmux_log" 2>&1 || true
-        fi
-        tmux_session="dotfiles-install-$$"
-        if $tmux_was_running; then
-            tmux new-session -d -s "$tmux_session" 2>>"$tmux_log" || true
-        else
-            tmux -f "$HOME/.config/tmux/tmux.conf" \
-                new-session -d -s "$tmux_session" 2>"$tmux_log" || true
-        fi
-        if tmux has-session -t "$tmux_session" 2>/dev/null; then
+        if tmux -f "$HOME/.config/tmux/tmux.conf" \
+                new-session -d -s dotfiles-install 2>"$tmux_log"; then
             if tmux run-shell \
                     "bash '$HOME/.config/tmux/plugins/tpm/bin/install_plugins'" \
                     >>"$tmux_log" 2>&1; then
@@ -379,7 +359,7 @@ if command -v tmux &>/dev/null; then
             if ! $tmux_was_running; then
                 tmux kill-server 2>/dev/null || true
             else
-                tmux kill-session -t "$tmux_session" 2>/dev/null || true
+                tmux kill-session -t dotfiles-install 2>/dev/null || true
             fi
         fi
         if $tmux_ok; then
@@ -443,26 +423,7 @@ fi
 # (stowed from config/). xdg-env.sh exports them as XDG_*_DIR.
 print_status "Creating lowercase user directories..."
 # shellcheck source=/dev/null
-xdg_env="$HOME/.config/shell/xdg-env.sh"
-xdg_env_source="$DOTFILES_DIR/config/.config/shell/xdg-env.sh"
-mkdir -p "$HOME/.config/shell"
-# The package can contain many legacy Stow conflicts; an earlier Stow run may
-# leave this one file stale or missing even though the installer can continue.
-# Ensure this environment file is always the exact repository version and is
-# linked back to the repo so future pulls update it automatically.
-if [ ! -L "$xdg_env" ] || [ "$(readlink -f "$xdg_env" 2>/dev/null || true)" != "$xdg_env_source" ]; then
-    if [ -e "$xdg_env" ] || [ -L "$xdg_env" ]; then
-        if ! cmp -s "$xdg_env" "$xdg_env_source"; then
-            print_warning "Backing up stale ~/.config/shell/xdg-env.sh"
-            mkdir -p "$BACKUP_DIR/conflicts/.config/shell"
-            mv "$xdg_env" "$BACKUP_DIR/conflicts/.config/shell/xdg-env.sh"
-        else
-            rm -f "$xdg_env"
-        fi
-    fi
-    ln -s "$xdg_env_source" "$xdg_env"
-fi
-. "$xdg_env"
+. "$HOME/.config/shell/xdg-env.sh"
 
 # Move leftovers from the capitalised defaults (~/Downloads -> ~/downloads, ...)
 # without overwriting anything: files that already exist at the target stay put.
