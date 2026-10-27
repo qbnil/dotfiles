@@ -18,7 +18,6 @@ if [ $# -eq 0 ]; then
 fi
 
 main() {
-	"$SCRIPTS_DIR/update_plugin.sh" --shell-echo "$*" # has correct exit code
+	bash "$SCRIPTS_DIR/update_plugin.sh" --shell-echo "$*" # has correct exit code
 }
 main "$*"
-

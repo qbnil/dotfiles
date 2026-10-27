@@ -11,7 +11,7 @@ source "$HELPERS_DIR/tmux_echo_functions.sh"
 source "$HELPERS_DIR/tmux_utils.sh"
 
 main() {
-	"$CURRENT_DIR/update_plugin.sh" --tmux-echo "$*"
+	bash "$CURRENT_DIR/update_plugin.sh" --tmux-echo "$*"
 	reload_tmux_environment
 	end_message
 }

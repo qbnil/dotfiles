@@ -50,7 +50,7 @@ set_tpm_path() {
 #	 - no errors raised if directory does not exist
 # Files are sourced as tmux config files, not as shell scripts!
 source_plugins() {
-	"$SCRIPTS_DIR/source_plugins.sh" >/dev/null 2>&1
+	bash "$SCRIPTS_DIR/source_plugins.sh" >/dev/null 2>&1
 }
 
 # prefix + I - downloads TPM plugins and reloads TMUX environment
@@ -68,7 +68,7 @@ set_tpm_key_bindings() {
 }
 
 supported_tmux_version_ok() {
-	"$SCRIPTS_DIR/check_tmux_version.sh" "$SUPPORTED_TMUX_VERSION"
+	bash "$SCRIPTS_DIR/check_tmux_version.sh" "$SUPPORTED_TMUX_VERSION"
 }
 
 main() {
