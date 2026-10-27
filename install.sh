@@ -322,8 +322,12 @@ for package in "${PACKAGES[@]}"; do
     fi
 done
 
-# TPM plugins are installed interactively from inside tmux after installation:
-# start tmux and press Prefix + I (the prefix is Alt+f in this configuration).
+# TPM plugins are deliberately not installed during this script. Tell the user
+# exactly how to install them once tmux.conf has been loaded in a tmux server.
+print_status "Tmux plugins were not installed automatically."
+echo "    After installation: start tmux, then press Alt+f followed by I"
+echo "    (the configured tmux prefix is Alt+f; TPM's default install key is I)."
+echo "    Or run from inside tmux: tmux run-shell '~/.config/tmux/plugins/tpm/bin/install_plugins'"
 
 # These are conventional compatibility entrypoints that some programs require.
 # Their real contents live under ~/.config.
