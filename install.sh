@@ -322,16 +322,8 @@ for package in "${PACKAGES[@]}"; do
     fi
 done
 
-# Install tmux plugins via TPM if tmux is installed
-if command -v tmux &>/dev/null && [ -d "$HOME/.config/tmux/plugins/tpm" ]; then
-    print_status "Installing tmux plugins..."
-    # Ensure plugins are installed non-interactively
-    tmux start-server 2>/dev/null
-    tmux run-shell -b "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" 2>/dev/null || \
-        "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" 2>/dev/null || true
-    tmux kill-server 2>/dev/null || true
-    print_success "Tmux plugins installation attempted"
-fi
+# TPM plugins are installed interactively from inside tmux after installation:
+# start tmux and press Prefix + I (the prefix is Alt+f in this configuration).
 
 # These are conventional compatibility entrypoints that some programs require.
 # Their real contents live under ~/.config.
@@ -377,7 +369,21 @@ fi
 # (stowed from config/). xdg-env.sh exports them as XDG_*_DIR.
 print_status "Creating lowercase user directories..."
 # shellcheck source=/dev/null
-. "$HOME/.config/shell/xdg-env.sh"
+# Deploy the shell package normally through the same Stow package root as the
+# rest of config. Do not stow the `shell` directory as a package into
+# ~/.config/shell: that makes Stow interpret its children at the wrong level
+# and can create absolute/self-referential links.
+xdg_env="$HOME/.config/shell/xdg-env.sh"
+if [ ! -r "$xdg_env" ]; then
+    print_warning "xdg-env.sh is missing after config stow; deploying its Stow link"
+    mkdir -p "$HOME/.config/shell"
+    if [ -e "$xdg_env" ] || [ -L "$xdg_env" ]; then
+        mv "$xdg_env" "$BACKUP_DIR/conflicts/.config/shell/xdg-env.sh"
+    fi
+    stow -d "$DOTFILES_DIR" -t "$HOME" --restow config
+fi
+[ -r "$xdg_env" ] || { print_error "Stow did not deploy ~/.config/shell/xdg-env.sh"; exit 1; }
+. "$xdg_env"
 
 # Move leftovers from the capitalised defaults (~/Downloads -> ~/downloads, ...)
 # without overwriting anything: files that already exist at the target stay put.
