@@ -40,7 +40,7 @@ if [ -s "$HOME/.cache/wal/wal" ]; then
     xwallpaper --zoom "$(cat "$HOME/.cache/wal/wal")"
 fi
 
-# xcompmgr needs to see _XROOTPMAP_ID set before it starts compositing.
+# The compositor needs to see _XROOTPMAP_ID set before it starts compositing.
 # Run after wallpaper is set to ensure it picks up the pixmap immediately.
 
 #IMG=$(cat ~/.cache/wal/wal)
@@ -58,14 +58,8 @@ flameshot &
 # has written the file, and the pgrep above stops a second xsettingsd.
 [ -x "$HOME/.config/vxpanel/startup.sh" ] && "$HOME/.config/vxpanel/startup.sh" &
 
-# xcompmgr -c -C -f -F -I 0.03 -O 0.03 -D 5 &
 # Start compositor after wallpaper is set so it sees _XROOTPMAP_ID.
-# xcompmgr -CcfF -I.14 -O.22 -D8 -t-1 -l-3 -r0 -o.5 &
 xcompmgr -Cc -t-1 -l-3 -r0 -o.5 &
-# xcompmgr -c -C &
-# vcompmgr -c -o 0.9 &
-# picom --config ~/.config/picom/picom.conf --xrender-sync-fence
-# picomlaunch &
 
 # for browser to be able to open file manager - backgrounded, it's a D-Bus
 # round-trip via systemctl and doesn't need to finish before vxwm starts

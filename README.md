@@ -100,6 +100,7 @@ The following source trees live under `src/` and are rebuilt on a new machine:
 - `src/nsxiv`
 - `src/slock`
 - `src/zlstatus`
+- `src/skippy-xd`
 
 The desktop also supports rootless Podman and Distrobox. `vxpanel` includes
 Podman and Distrobox pages, and the helper commands `podman-panel` and
@@ -146,7 +147,16 @@ make -j"$(nproc)"
 make PREFIX="$HOME/.local" install
 ```
 
-For the rest, use the same pattern with their corresponding source directory. `zlstatus` is built with Zig:
+For the rest, use the same pattern with their corresponding source directory. `skippy-xd` is built with meson/ninja (Chipmunk2D is vendored, so no network access is needed):
+
+```bash
+cd ~/dotfiles/src/skippy-xd
+meson setup --reconfigure build
+ninja -C build
+install -Dm755 build/skippy-xd ~/.local/bin/skippy-xd
+```
+
+Its user configuration is stowed from `config/.config/skippy-xd/skippy-xd.rc`; edit that file to change navigation or marker keys. `zlstatus` is built with Zig:
 
 ```bash
 cd ~/dotfiles/src/zlstatus
@@ -166,7 +176,7 @@ install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 | Resize floating window | `Alt+Ctrl+Shift` + `h/j/k/l` | Keyboard resize (50 px steps). |
 | Toggle floating | `Alt+Shift+Space` | `togglefloating`. |
 | Enhanced toggle floating | `Alt+e` | `enhancedtogglefloating`. |
-| Window chooser | `Alt+Tab` / `Alt+Shift+Tab` | `dmenu-win`: searchable window list, most recently used first. |
+| Window chooser | `Alt+Tab` / `Alt+Shift+Tab` | `skippy-xd`: live previews of **all tags** with tag numbers. Move with `h/j/k/l`, select with `Return`/`space`, cancel with `Esc`. Every preview shows a letter marker (`a`, `b`, `c`, ...) and pressing it jumps straight to that window and its tag. |
 | Cycle all windows | `Alt+\` / `Alt+Shift+\` | `alttaball`: cycles every visible window, tiled and floating. |
 | Cycle floating windows | ``Alt+` `` / ``Alt+Shift+` `` | `alttab`: cycles only floating windows. |
 | Monocle position indicator | — | The bar shows `[i/n]` (e.g. `[3/5]`) — the focused window's position among the visible windows — and updates immediately on every focus change. |

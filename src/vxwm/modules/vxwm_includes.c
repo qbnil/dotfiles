@@ -56,9 +56,6 @@
 #include "externalbars/externalbars.c"
 #endif
 
-#if ZOOM
-#include "zoom/zoom.c"
-#endif
 
 #if FLOATING_ALTTAB
 #include "alttab/alttab.c"

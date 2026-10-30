@@ -9,6 +9,6 @@ CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SCRIPTS_DIR="$CURRENT_DIR/../scripts"
 
 main() {
-	bash "$SCRIPTS_DIR/clean_plugins.sh" # has correct exit code
+	"$SCRIPTS_DIR/clean_plugins.sh" # has correct exit code
 }
 main

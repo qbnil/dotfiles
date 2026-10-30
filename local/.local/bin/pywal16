@@ -3,7 +3,7 @@
 #
 # Order matters. pywal sets the wallpaper with feh, but feh is launched in the
 # background (pywal disowns it) and needs ~180ms to decode a 4K image. If we
-# repaint before that, xcompmgr keeps showing the OLD wallpaper until some
+# repaint before that, the compositor keeps showing the OLD wallpaper until some
 # unrelated event (keypress, tag switch, launching an app) forces a redraw.
 # So we set the wallpaper ourselves with the tiny xwallpaper binary (it blocks
 # until the pixmap is on the root window) and only then force one redraw.
@@ -30,7 +30,7 @@ if [ -s "$WAL_IMG" ]; then
     fi
 fi
 
-# 3. Repaint: reload vxwm's colours and force xcompmgr to redraw the root now.
+# 3. Repaint: reload vxwm's colours and force the compositor to redraw the root now.
 if [ -n "${DISPLAY:-}" ]; then
     xdotool key super+F5 2>/dev/null || true
     xrefresh

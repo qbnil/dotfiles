@@ -1147,7 +1147,10 @@ enternotify(XEvent *e)
 	Monitor *m;
 	XCrossingEvent *ev = &e->xcrossing;
 
-	if ((ev->mode != NotifyNormal || ev->detail == NotifyInferior) && ev->window != root)
+	if ((ev->mode != NotifyNormal ||
+	     ev->detail == NotifyInferior ||
+	     ev->detail == NotifyVirtual ||
+	     ev->detail == NotifyNonlinearVirtual) && ev->window != root)
 		return;
 	c = wintoclient(ev->window);
 	m = c ? c->mon : wintomon(ev->window);
@@ -1692,9 +1695,6 @@ movemouse(const Arg *arg)
 #if LOCK_MOVE_RESIZE_REFRESH_RATE
 	Time lasttime = 0;
 #endif
-#if ZOOM
-  float zoom_val = zoom_value();
-#endif
 
 	if (!(c = selmon->sel) || c->isfullscreen)
 		return;
@@ -1720,13 +1720,8 @@ movemouse(const Arg *arg)
 				continue;
 			lasttime = ev.xmotion.time;
 #endif
-#if !ZOOM
 			nx = ocx + (ev.xmotion.x - x);
 			ny = ocy + (ev.xmotion.y - y);
-#else
-      nx = ocx + (ev.xmotion.x - x) / zoom_val;
-			ny = ocy + (ev.xmotion.y - y) / zoom_val;
-#endif
 			if (abs(selmon->wx - nx) < snap)
 				nx = selmon->wx;
 			else if (abs((selmon->wx + selmon->ww) - (nx + WIDTH(c))) < snap)
@@ -2237,19 +2232,27 @@ setlayout(const Arg *arg)
 
 #if INFINITE_TAGS
     if (old_layout->arrange == NULL && new_layout->arrange != NULL) {
+		int tagidx = getcurrenttag(selmon);
         save_canvas_positions(selmon);
         homecanvas(NULL);
         Client *c;
         for (c = selmon->clients; c; c = c->next)
-            if (!c->isfixed) c->isfloating = 0;
+			/* A layout belongs to one tag. Do not turn windows on other
+			 * workspaces into tiled clients when this workspace leaves the
+			 * floating canvas. */
+            if ((c->tags & (1 << tagidx)) && !c->isfixed)
+				c->isfloating = 0;
     }
 
     if (new_layout->arrange == NULL) {
+		int tagidx = getcurrenttag(selmon);
         restore_canvas_positions(selmon);
 
         Client *c;
         for (c = selmon->clients; c; c = c->next)
-            c->isfloating = 1;
+			/* Keep every other workspace's client state intact. */
+            if (c->tags & (1 << tagidx))
+				c->isfloating = 1;
 
         /* entering floating from a tiled layout: lay the windows of this
          * workspace out side by side without overlap */
@@ -2508,18 +2511,19 @@ void
 tagmon(const Arg *arg)
 {
 	Monitor *m;
+	Client *c;
 
-	if (!selmon->sel || !mons->next || (m = dirtomon(arg->i)) == selmon)
+	if (!(c = selmon->sel) || !mons->next || (m = dirtomon(arg->i)) == selmon)
 		return;
 
 	/* Move the client and follow it to the destination monitor.  sendmon()
 	 * deliberately does not change selmon because it is also used while
 	 * managing clients and applying rules.  For the explicit Mod+Shift+,/.
-	 * action, however, leaving focus behind makes the moved window appear to
-	 * vanish and requires a second focus-monitor keystroke. */
-	sendmon(selmon->sel, m);
+	 * action, focus the moved client directly: focus(NULL) can pick another
+	 * client from the destination stack depending on ordering. */
+	sendmon(c, m);
 	selmon = m;
-	focus(NULL);
+	focus(c);
 }
 
 void
@@ -3161,7 +3165,6 @@ unmanage(Client *c, int destroyed)
 {
 	Monitor *m = c->mon;
 	XWindowChanges wc;
-	unsigned int ctags = c->tags;
 
 	detach(c);
 	detachstack(c);
@@ -3178,37 +3181,6 @@ unmanage(Client *c, int destroyed)
 		XUngrabServer(dpy);
 	}
 	free(c);
-	/* last tiled window of a tag is gone: forget that tag's master-size (mfact)
-	 * adjustment and its layout, so the next windows there start at the config.h
-	 * defaults again. Only the floating layout stays remembered. */
-#if PER_TAG_LAYOUT
-	{
-		unsigned int i;
-		Client *o;
-
-		for (i = 0; i < LENGTH(tags); i++) {
-			if (!(ctags & (1 << i)))
-				continue;
-			for (o = m->clients; o && (o->isfloating || !(o->tags & (1 << i))); o = o->next);
-			if (o)
-				continue;
-			if (!m->pertaglt[i]->arrange) /* floating layout: keep it */
-				continue;
-			m->pertagmfact[i] = mfact;
-			m->pertaglt[i] = &layouts[0];
-			m->pertagsellt[i] = 0;
-			if (currenttagidx(m) == (int)i) {
-				m->mfact = mfact;
-				m->lt[0] = &layouts[0];
-				m->sellt = 0;
-			}
-		}
-	}
-#else
-	(void)ctags;
-	if (!nexttiled(m->clients))
-		m->mfact = mfact;
-#endif
 	focus(NULL);
 	updateclientlist();
 	arrange(m);

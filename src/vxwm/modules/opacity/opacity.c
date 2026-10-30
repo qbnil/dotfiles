@@ -1,6 +1,6 @@
 /* opacity - per-window transparency via _NET_WM_WINDOW_OPACITY
  *
- * Needs a running compositor in client-side mode (xcompmgr -c or vcompmgr -c).
+ * Needs a running compositor in client-side mode xcompmgr -c.
  * Without one, setting the property is a harmless no-op visually.
  *
  * Two global levels, applied automatically:

@@ -100,8 +100,9 @@ stowing, so Stow links the themes *into* it instead of folding the whole
 directory into a symlink back to the repo (which would make anything writing to
 `~/.local/share/icons` write into the dotfiles repo).
 
-`herta/` and `robin/` ship only Windows `.ani` files, so they are not Xcursor
-themes and are deliberately not linked.
+Only real Xcursor themes are shipped. Windows `.ani` sets (`herta`, `robin`) used
+to live here but were never linked - libXcursor cannot read them - so they were
+removed to keep ~14 MB of unusable binaries out of the repository.
 
 The theme itself is set the plain way: vxpanel writes `Xcursor.theme` /
 `Xcursor.size` into `~/.config/vxpanel/Xresources` (plus `gtk-cursor-theme-name`

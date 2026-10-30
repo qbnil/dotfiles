@@ -22,7 +22,6 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
  
  */
 #define IT_SHOW_COORDINATES_IN_BAR 1 // Shows your coordinates in the bar, pretty impossible to use infinite tags without this.
-#define ZOOM 1 // Zoom integration, requires vcompmgr installed and running.
 
 
 /* Move/Resize */
@@ -44,15 +43,15 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 /* Tagging */
 #define TAG_TO_TAG 1 // If you switch to tag where you already are, it'll switch to previous tag.
 #define FOLLOW_TAGGED_WINDOW 1 // Follow a window when Mod+Shift+tag moves it.
-#define SLOWER_TAGS_ANIMATION 0 // This slows down tags animation speed, which results in smoother tags animations (requires picom to see any difference).
+#define SLOWER_TAGS_ANIMATION 0 // This slows down tags animation speed, which results in smoother tags animations.
 #define WINDOWMAP 1
 /* This makes the windows get mapped or unmapped in X11. This results in certain
    behaviour being enabled, some examples are: fix issues with some applications 
-   losing input forever after a tag change or when you use a compositor like picom, 
+   losing input forever after a tag change or when you use a compositor, 
    your windows will fade in and out when you switch dwm tags. */
 
 #define PDWM_LIKE_TAGS_ANIMATION 0
-/* This makes function showhide be like in pdwm, if using a compositor like picom,
+/* This makes function showhide be like in pdwm, if using a compositor like a compositor,
    this results in an alternative tags animation. */
 
 
@@ -152,7 +151,7 @@ Even though this sounds complex, it is actually pretty lightweight, and is very 
 
 #define OPACITY 1
 /* Per-window transparency through _NET_WM_WINDOW_OPACITY. Needs a compositor in
-   client-side mode (xcompmgr -c or vcompmgr -c) to be visible. Focused and
+   client-side mode (xcompmgr -c) to be visible. Focused and
    unfocused windows get separate default values, and a window you adjust by
    hand keeps its own value across focus and tag changes. Suggested binds:
 #if OPACITY

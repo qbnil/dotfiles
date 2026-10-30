@@ -1,0 +1,31 @@
+# Local skippy-xd settings for vxwm.
+
+[system]
+# Show windows from every tag/workspace. Selecting one switches to its tag.
+desktops = -1
+
+[layout]
+switchLayout = rect
+exposeLayout = cosmos
+
+[bindings]
+# vim/nvim-style hjkl for window switching.
+keysUp = k
+keysDown = j
+keysLeft = h
+keysRight = l
+keysSelect = Return space
+keysCancel = Escape
+
+# Every preview gets a one-key jump marker (a, b, c, ...) assigned left to
+# right; h/j/k/l (navigation) and n/p (next/previous) are skipped. Press a
+# marker to jump straight to that window and its tag, without navigating to it
+# first. Digits 1-9 are added only when there are more than 20 windows.
+
+# Upstream binds 1=iconify, 2=shade, 3=close here. In vxwm those digits are
+# tag shortcuts and are easy to hit by accident, which made windows vanish
+# while the switcher was open. Disable those actions; assign keys here if
+# you want them back (for example: keysIconify = i).
+keysIconify =
+keysShade =
+keysClose =

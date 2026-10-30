@@ -9,9 +9,8 @@ plugin_dir_exists() {
 	[ -d "$1" ]
 }
 
-# Sources all *.tmux files from the plugin directory.
-# Dotfiles deployments commonly store these scripts without executable bits,
-# so execute them via bash instead of relying on mode 100755.
+# Runs all executable *.tmux entrypoints from the plugin directory. Their
+# shebang selects the interpreter, so this also works for non-Bash plugins.
 # No errors if the plugin dir does not exist.
 silently_source_all_tmux_files() {
 	local plugin_path="$1"
@@ -21,7 +20,7 @@ silently_source_all_tmux_files() {
 			# if the glob didn't find any files this will be the
 			# unexpanded glob which obviously doesn't exist
 			[ -f "$tmux_file" ] || continue
-			bash "$tmux_file" >/dev/null 2>&1
+			"$tmux_file" >/dev/null 2>&1
 		done
 	fi
 }

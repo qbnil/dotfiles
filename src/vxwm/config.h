@@ -147,7 +147,7 @@ static const char *occupiedtags[] = { "1+", "2+", "3+", "4+", "5+", "6+", "7+", 
    any window you have not adjusted by hand. Manual tweaks to the focused window
    (Super+Shift+Up/Down) are temporary: the window reverts to the unfocused
    level as soon as it loses focus. Needs a compositor running client-side
-   (xcompmgr -c or vcompmgr -c) for any of it to be visible. */
+   xcompmgr -c for any of it to be visible. */
 static const unsigned int opacity_focused   = 100; /* focused windows   */
 static const unsigned int opacity_unfocused = 85;  /* unfocused windows */
 static const unsigned int opacity_step      = 5;   /* change per press  */
@@ -223,12 +223,9 @@ static const char *powermenu[] = { "sys", NULL };
 static const char *wallpapermenu[] = { "wallpapermenu", NULL };
 static const char *cheatsheet[] = { "cheatsheet", NULL };
 static const char *dmenuwin[] = {"dmenu-win", NULL };
+/* One-shot preview chooser: all tags, live previews, quick-jump keys. */
+static const char *skippycmd[] = { "skippy-xd", NULL };
 
-#if ZOOM
-static const char *zoomin[] = { "vcompmgr", "-Z", "+0.15", NULL }; // zoom in
-static const char *zoomout[] = { "vcompmgr", "-Z", "-0.15", NULL }; // zoom out
-static const char *zoomreset[] = { "vcompmgr", "-Z", "1", NULL }; // set zoom to 1
-#endif
 
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
@@ -309,9 +306,9 @@ static const Key keys[] = {
   { ALTERNATE_MODKEY,   XK_e,      enhancedtogglefloating, {0} }, //enhanced toggle floating bind. (Alt because floating)
 #endif
 #if FLOATING_ALTTAB
-  /* macOS-style searchable window chooser. */
-  { ALTERNATE_MODKEY,             XK_Tab,    spawn,           {.v = dmenuwin} },
-  { ALTERNATE_MODKEY|ShiftMask,   XK_Tab,    spawn,           {.v = dmenuwin} },
+  /* Preview chooser; inactive tags remain managed by vxwm normally. */
+  { ALTERNATE_MODKEY,             XK_Tab,    spawn,           {.v = skippycmd} },
+  { ALTERNATE_MODKEY|ShiftMask,   XK_Tab,    spawn,           {.v = skippycmd} },
   { ALTERNATE_MODKEY,             XK_grave,  alttab,          {.i = +1 } }, // next floating window only
   { ALTERNATE_MODKEY|ShiftMask,   XK_grave,  alttab,          {.i = -1 } }, // previous floating window only
   { ALTERNATE_MODKEY,             XK_backslash, alttaball,     {.i = +1 } }, // next window, all layouts
@@ -353,11 +350,6 @@ static const Key keys[] = {
 	{ MODKEY, XK_k,   focusstrip,     {.i = 2 } }, // up    (vstrip: older window)
 	{ MODKEY, XK_j,   focusstrip,     {.i = 3 } }, // down  (vstrip: newer window)
 #endif
-#if ZOOM
- { ALTERNATE_MODKEY|ShiftMask,    XK_r,      spawn,          {.v = zoomreset } },
- { ALTERNATE_MODKEY,              XK_equal,  spawn,          {.v = zoomin } },
- { ALTERNATE_MODKEY,              XK_minus,  spawn,          {.v = zoomout } },
-#endif
 #if OPACITY
   /* global toggle: all windows opaque, or back to per-focus values */
   { MODKEY,                       XK_o,      toggleopacity,      {0} },
@@ -382,13 +374,6 @@ static const Button buttons[] = {
   { ClkRootWin,           0,                        Button1,        movecanvasmouse,     {.f = 1.5 } },
   /* .f = 1 is moving multiplier, for example if set to 0.5, canvas will move 2 times slower, if set to 2, canvas will move 2 times faster. 
      If you want inverted canvas move then set the value to a negative value. */
-#endif
-#if ZOOM
-  { ClkRootWin,           MODKEY,         SCROLL_UP,      spawn,          {.v = zoomin } },
-  { ClkRootWin,           MODKEY,         SCROLL_DOWN,    spawn,          {.v = zoomout } },
-
-  { ClkClientWin,         MODKEY,         SCROLL_UP,      spawn,          {.v = zoomin } },
-  { ClkClientWin,         MODKEY,         SCROLL_DOWN,    spawn,          {.v = zoomout } },
 #endif
 	{ ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
 	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },

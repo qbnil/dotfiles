@@ -189,7 +189,9 @@ print_success "Essential tools installed"
 # ----------------------------------------------------------------------------
 print_status "Installing build dependencies, X11 stack, fonts and base apps..."
 
-BUILD_DEPS=(libx11 libxft libxinerama libxrender libxcb fontconfig freetype2 imlib2 pkgconf zig)
+BUILD_DEPS=(libx11 libxft libxinerama libxrender libxcb fontconfig freetype2 imlib2 pkgconf zig
+            libxcomposite libxdamage libxext libxfixes libxrandr libxi
+            giflib libjpeg-turbo libpng zlib meson ninja cmake)
 
 X_PKGS=(xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xrdb xorg-xset xorg-xprop
         xorg-xinput xorg-xev xf86-input-libinput xclip xdotool xcompmgr xwallpaper mesa)
@@ -198,7 +200,7 @@ X_PKGS=(xorg-server xorg-xinit xorg-xrandr xorg-xsetroot xorg-xrdb xorg-xset xor
 FONT_PKGS=(ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji ttf-font-awesome
            ttf-jetbrains-mono ttf-jetbrains-mono-nerd ttf-nerd-fonts-symbols)
 
-APP_PKGS=(zsh neovim tmux dunst libnotify mpd mpc yazi thunar podman distrobox
+APP_PKGS=(zsh neovim tmux dunst libnotify mpd mpc yazi thunar
           pipewire pipewire-pulse wireplumber networkmanager
           zram-generator xdg-utils ripgrep fd fzf
           udisks2 udisks2-btrfs gvfs gvfs-mtp thunar-volman polkit polkit-gnome upower)
@@ -321,13 +323,6 @@ for package in "${PACKAGES[@]}"; do
         FAILED_STOW+=("$package")
     fi
 done
-
-# TPM plugins are deliberately not installed during this script. Tell the user
-# exactly how to install them once tmux.conf has been loaded in a tmux server.
-print_status "Tmux plugins were not installed automatically."
-echo "    After installation: start tmux, then press Alt+f followed by I"
-echo "    (the configured tmux prefix is Alt+f; TPM's default install key is I)."
-echo "    Or run from inside tmux: tmux run-shell '~/.config/tmux/plugins/tpm/bin/install_plugins'"
 
 # These are conventional compatibility entrypoints that some programs require.
 # Their real contents live under ~/.config.
@@ -481,7 +476,7 @@ fi
 # ----------------------------------------------------------------------------
 print_status "Building custom programs from ./src..."
 
-for b in dmenu dmenu_run stest st vxwm zlstatus nsxiv slock dmenu-win; do
+for b in dmenu dmenu_run stest st vxwm zlstatus nsxiv slock dmenu-win skippy-xd; do
     if [ -e "$HOME/.local/bin/$b" ]; then
         rm -f "$HOME/.local/bin/$b"
     fi
@@ -562,11 +557,40 @@ build_thunar_patched() {
     rm -rf "$tmp"
 }
 
+# skippy-xd is the custom "Digimon Edition" window switcher: all tags visible,
+# hjkl navigation, tag labels, live previews and per-window quick-jump keys.
+# Built with meson/ninja; Chipmunk2D is vendored in subprojects/ so the build
+# needs no network access.
+build_skippy_xd() {
+    local dir="$DOTFILES_DIR/src/skippy-xd"
+    local bdir="$dir/build"
+    local log=/tmp/dotfiles-build-skippy-xd.log
+
+    [ -d "$dir" ] || { print_warning "Source missing: $dir"; FAILED_BUILDS+=("skippy-xd"); return 0; }
+    print_status "Building skippy-xd..."
+    if ( cd "$dir" \
+         && if [ -f "$bdir/meson-private/coredata.dat" ]; then \
+                meson setup --reconfigure "$bdir" >/dev/null; \
+            else \
+                rm -rf "$bdir"; meson setup "$bdir" >/dev/null; \
+            fi \
+         && ninja -C "$bdir" 2>&1 | tee "$log" \
+         && install -Dm755 "$bdir/skippy-xd" "$HOME/.local/bin/skippy-xd" ); then
+        print_success "skippy-xd -> ~/.local/bin"
+        rm -f "$log"
+    else
+        print_error "skippy-xd build failed; full log: $log"
+        tail -n 40 "$log" 2>/dev/null | sed 's/^/    /' || true
+        FAILED_BUILDS+=("skippy-xd")
+    fi
+}
+
 build_user_make vxwm "$DOTFILES_DIR/src/vxwm"
 build_user_make dmenu "$DOTFILES_DIR/src/dmenu"
 build_user_make st "$DOTFILES_DIR/src/st-terminal"
 build_user_make nsxiv "$DOTFILES_DIR/src/nsxiv"
 build_user_make dmenu-win "$DOTFILES_DIR/src/dmenu-win"
+build_skippy_xd
 build_slock
 build_thunar_patched
 
@@ -586,7 +610,7 @@ if [ -d "$DOTFILES_DIR/src/zlstatus" ]; then
 fi
 
 cd "$DOTFILES_DIR"
-for b in vxwm dmenu st zlstatus nsxiv dmenu-win; do
+for b in vxwm dmenu st zlstatus nsxiv dmenu-win skippy-xd; do
     if [ -x "$HOME/.local/bin/$b" ] && ldd "$HOME/.local/bin/$b" 2>/dev/null | grep -q 'not found'; then
         print_warning "$b has unresolved libraries:"
         ldd "$HOME/.local/bin/$b" | grep 'not found' || true
@@ -649,7 +673,6 @@ fi
 # packages-native.txt; installing them again here is a no-op with --needed but
 # keeps Compose available even if a list entry failed.
 print_status "Configuring Docker..."
-pacman_install docker docker-compose docker-buildx
 
 # shell/xdg-env.sh sets DOCKER_CONFIG=~/.config/docker, so Docker must not use
 # ~/.docker. Docker writes config.json, contexts/, buildx/ and cli-plugins/ into
@@ -682,7 +705,6 @@ fi
 # Podman, so no Docker-group membership or rootful Podman service is required.
 # Podman is daemonless and the local API socket is not needed by Distrobox.
 print_status "Configuring rootless Podman and Distrobox..."
-pacman_install podman distrobox
 if command -v podman >/dev/null 2>&1 && command -v distrobox >/dev/null 2>&1; then
     print_success "Rootless Podman $(podman --version | awk '{print $3}') and Distrobox $(distrobox version 2>/dev/null | head -1) are available"
     if [ "${DOTFILES_CREATE_DISTROBOX:-0}" = "1" ] && [ -x "$DOTFILES_DIR/bootstrap/setup-distrobox.sh" ]; then
@@ -822,7 +844,7 @@ fi
 
 print_status "Summary of installed programs:"
 echo "  Custom programs:"
-for prog in vxwm dmenu st nsxiv zlstatus dmenu-win; do
+for prog in vxwm dmenu st nsxiv zlstatus dmenu-win skippy-xd; do
     if [ -x "$HOME/.local/bin/$prog" ]; then
         echo "    ✓ $prog -> ~/.local/bin/$prog"
     else
