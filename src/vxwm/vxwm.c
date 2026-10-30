@@ -302,6 +302,7 @@ static void floatfix(Monitor *m, Client *keep, int margin);
 
 static void floatreveal(Client *c);
 static void floatplace(Client *c, int tx, int ty, Monitor *m, Client *skip);
+static void floatslot(Monitor *m, Client *c);
 static int floatfocus(int dir);
 static int floatbusy = 0;
 #define FLOAT_W 0.75f  /* window size as share of the work area */
@@ -2470,6 +2471,8 @@ tag(const Arg *arg)
     if (selmon->sel && arg->ui & TAGMASK) {
         Client *c = selmon->sel;
         #if INFINITE_TAGS
+        /* the layout of the tag being left decides how the window leaves it */
+        int leftfloat = curlayout(selmon)->arrange == NULL;
         unsigned int target_tag_mask = arg->ui & TAGMASK;
         int i;
 
@@ -2492,6 +2495,13 @@ tag(const Arg *arg)
 		updatewmdesktop(c);
 		#endif
 
+#if INFINITE_TAGS
+		/* the window is gone from that canvas, so the windows still on it close
+		 * the gap and the tag stays packed when it is shown again */
+		if (leftfloat && !(c->tags & selmon->tagset[selmon->seltags]))
+			floatspread(selmon);
+#endif
+
 		/* Moving a client to another tag should follow it when enabled.  The old behavior
 		 * left the current view on the old tag and focused whichever client
 		 * happened to be next there, making the moved window look lost. */
@@ -2500,6 +2510,17 @@ tag(const Arg *arg)
 		if (target != selmon->tagset[selmon->seltags]) {
 			Arg a = { .ui = target };
 			view(&a);
+#if INFINITE_TAGS
+			/* The window belongs to the layout of the tag it lands on. Tiled there,
+			 * it must not stay floating and end up on top of the tiled windows with
+			 * the next window opened on that tag hidden beneath it; floating there,
+			 * it gets a normal canvas slot instead of the size and place it had
+			 * while it was tiled on the tag it came from. */
+			if (curlayout(selmon)->arrange == NULL)
+				floatslot(selmon, c);
+			else if (!c->isfixed)
+				c->isfloating = 0;
+#endif
 		}
 		focus(c);
 		#endif
@@ -2874,6 +2895,30 @@ floatreveal(Client *c)
 		XEvent ev;
 		while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 	}
+}
+
+/* Put c on the floating canvas of the tag now shown as if it had just been opened
+ * there: default size, its own free slot, visible. Used when a window is moved
+ * onto a floating tag, so it does not keep the size and place it had while it
+ * was tiled (or floating) somewhere else. */
+static void
+floatslot(Monitor *m, Client *c)
+{
+	int t = getcurrenttag(m);
+
+	c->isfloating = 1;
+	c->fslot = 1;
+	c->w = MAX((int)(m->ww * FLOAT_W) - 2 * c->bw, 1);
+	c->h = MAX((int)(m->wh * FLOAT_H) - 2 * c->bw, 1);
+	floatplace(c, m->wx + (m->ww - WIDTH(c)) / 2, m->wy + (m->wh - HEIGHT(c)) / 2, m, NULL);
+	resizeclient(c, c->x, c->y, c->w, c->h);
+	floatreveal(c);
+	/* the geometry saved on the way out belonged to the other tag's layout, the
+	 * canvas bookkeeping has to know the slot we just chose instead */
+	c->saved_cx = c->x + m->canvas[t].cx;
+	c->saved_cy = c->y + m->canvas[t].cy;
+	c->saved_cw = c->w;
+	c->saved_ch = c->h;
 }
 
 /* Scrolling strips: an endless row ([H], horizontal) or column ([V], vertical) of
