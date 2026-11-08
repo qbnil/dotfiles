@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Re-serve slow clipboard images so a paste cannot time out.
+
+Telegram Desktop (and some other Qt applications) only produces image/png on
+demand.  For big pictures the conversion can take longer than a browser waits
+while it builds a paste event, so the image arrives empty even though the
+clipboard itself is fine.  This bridge notices the selection change, fetches
+the PNG once in the background and then owns CLIPBOARD itself, so the browser
+gets the bytes immediately.
+
+Only image/png is handled.  Clipboards that also carry text (a file manager,
+or a browser copying an <img>) are left alone: they already provide their data
+quickly and must keep the text/uri-list flavour.
+"""
+
+import fcntl
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+
+from Xlib import X, display
+from Xlib.ext import xfixes
+from Xlib.protocol import event
+
+MAX_IMAGE = 32 * 1024 * 1024
+TEXT_TARGETS = (b'text/plain', b'UTF8_STRING', b'text/uri-list')
+
+
+def main():
+    lock_path = os.path.join(
+        os.environ.get('XDG_RUNTIME_DIR', '/tmp'),
+        'clipimg-bridge-%d.lock' % os.getuid())
+    lock = open(lock_path, 'w')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return
+
+    d = display.Display()
+    root = d.screen().root
+    clipboard = d.intern_atom('CLIPBOARD')
+    targets_atom = d.intern_atom('TARGETS')
+    png = d.intern_atom('image/png')
+    timestamp = d.intern_atom('TIMESTAMP')
+    save_targets = d.intern_atom('SAVE_TARGETS')
+    atom_atom = d.intern_atom('ATOM')
+    integer = d.intern_atom('INTEGER')
+
+    win = root.create_window(0, 0, 1, 1, 0, 0, X.InputOutput)
+    try:
+        d.xfixes_query_version()
+        d.xfixes_select_selection_input(
+            root, clipboard, xfixes.XFixesSetSelectionOwnerNotifyMask)
+    except Exception:
+        return
+    d.sync()
+
+    data = b''
+    fetched = queue.Queue()
+    fetching = False
+
+    def fetch_image(owner):
+        """Fetch outside the X event loop, after Telegram closes its menu."""
+        time.sleep(1.0)
+        try:
+            offered = subprocess.run(
+                ['xclip', '-selection', 'clipboard', '-o', '-t', 'TARGETS'],
+                capture_output=True, timeout=3).stdout
+        except (subprocess.TimeoutExpired, OSError):
+            fetched.put((owner, b''))
+            return
+        if b'image/png' not in offered or any(t in offered for t in TEXT_TARGETS):
+            fetched.put((owner, b''))
+            return
+        try:
+            blob = subprocess.run(
+                ['xclip', '-selection', 'clipboard', '-o', '-t', 'image/png'],
+                capture_output=True, timeout=20).stdout
+        except (subprocess.TimeoutExpired, OSError):
+            fetched.put((owner, b''))
+            return
+        if not blob.startswith(b'\x89PNG\r\n\x1a\n') or len(blob) > MAX_IMAGE:
+            fetched.put((owner, b''))
+            return
+        fetched.put((owner, blob))
+
+    def serve(req):
+        prop = req.property or req.target
+        ok = True
+        if req.target == targets_atom:
+            req.requestor.change_property(
+                prop, atom_atom, 32,
+                [targets_atom, png, timestamp, save_targets])
+        elif req.target == png:
+            chunk = 200000
+            req.requestor.change_property(prop, png, 8, data[:chunk])
+            for off in range(chunk, len(data), chunk):
+                req.requestor.change_property(
+                    prop, png, 8, data[off:off + chunk],
+                    mode=X.PropModeAppend)
+        elif req.target == timestamp:
+            req.requestor.change_property(prop, integer, 32, [req.time])
+        else:
+            ok = False
+        req.requestor.send_event(event.SelectionNotify(
+            time=req.time, requestor=req.requestor, selection=req.selection,
+            target=req.target, property=prop if ok else 0))
+        d.flush()
+
+    while True:
+        if d.pending_events():
+            e = d.next_event()
+        else:
+            time.sleep(0.02)
+            e = None
+
+        result = None
+        try:
+            result = fetched.get_nowait()
+        except queue.Empty:
+            pass
+        if result:
+            owner, blob = result
+            current = d.get_selection_owner(clipboard)
+            if blob and (current.id if current else 0) == owner:
+                data = blob
+                win.set_selection_owner(clipboard, X.CurrentTime)
+                d.flush()
+            fetching = False
+
+        if e is None:
+            continue
+
+        if type(e).__name__ == 'SetSelectionOwnerNotify':
+            if e.selection != clipboard:
+                continue
+            owner = e.owner.id if e.owner else 0
+            if not owner or owner == win.id:
+                continue
+
+            # Telegram closes its media context menu asynchronously after it
+            # gives up the clipboard.  Do not request image/png immediately:
+            # that makes Telegram perform its expensive PNG conversion while
+            # the menu is still handling the copy action, which makes the
+            # menu appear to hang.  A short grace period lets the copy event
+            # finish; the bridge still caches the image before a paste.
+            if not fetching:
+                fetching = True
+                threading.Thread(target=fetch_image, args=(owner,), daemon=True).start()
+
+        elif e.type == X.SelectionRequest and data:
+            serve(e)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

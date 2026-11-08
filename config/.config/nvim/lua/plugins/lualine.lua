@@ -1,7 +1,7 @@
 return {
 	{
 		"nvim-lualine/lualine.nvim",
-		lazy = false,
+		event = "VeryLazy",
 		dependencies = { "nvim-tree/nvim-web-devicons" },
 		config = function()
 			local lualine = require("lualine")
@@ -15,7 +15,20 @@ return {
 				sections = {
 					lualine_a = { "mode" },
 					lualine_c = { { "filename", path = 1 } },
-					lualine_b = { "branch", "diff" },
+					lualine_b = {
+						{
+							"branch",
+							cond = function()
+								return not vim.b.bigfile
+							end,
+						},
+						{
+							"diff",
+							cond = function()
+								return not vim.b.bigfile
+							end,
+						},
+					},
 					lualine_x = {
 						{
 							"filetype",

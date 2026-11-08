@@ -27,6 +27,33 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+/*
+ * @brief Order previews the way the windows are arranged on the screen.
+ *
+ * The client list follows the WM's stacking order, which changes every time a
+ * window is focused. Laying the previews out in that order makes them reshuffle
+ * on every Alt+Tab even though the real windows never moved. Sorting by the
+ * geometry captured in src (absolute root coordinates, so the monitor order is
+ * preserved) keeps a preview at the position that matches the window.
+ *
+ * Ties (windows stacked on top of each other, e.g. monocle) fall back to the
+ * client window id so the order is stable and never depends on focus history.
+ */
+static int
+sort_cw_by_position(dlist *dlist1, dlist *dlist2, void *data)
+{
+	ClientWin *cw1 = (ClientWin *) dlist1->data;
+	ClientWin *cw2 = (ClientWin *) dlist2->data;
+
+	if (cw1->src.x != cw2->src.x)
+		return cw1->src.x < cw2->src.x ? -1 : 1;
+	if (cw1->src.y != cw2->src.y)
+		return cw1->src.y < cw2->src.y ? -1 : 1;
+	if (cw1->wid_client != cw2->wid_client)
+		return cw1->wid_client < cw2->wid_client ? -1 : 1;
+	return 0;
+}
+
 static void layout_xd(dlist *windows,
 		unsigned int *total_width, unsigned int *total_height,
 		bool compact, int distance);
@@ -44,11 +71,18 @@ layout_run(MainWin *mw, dlist *windows,
 {
 	if (!windows) return;
 	if (layout == LAYOUT_COSMOS) {
+		/* `desktops = -1` shows every tag at once: the windows are already
+		 * in one coordinate space, so there is no virtual desktop grid to
+		 * offset them by. Offsetting them would push previews of other
+		 * tags a whole monitor (or more) away from the current one. */
+		const char *desktops = mw->ps->o.desktops;
+		bool all_desktops = desktops && strcmp(desktops, "-1") == 0;
+
 		foreach_dlist (dlist_first(windows)) {
 			ClientWin *cw = iter->data;
 
 			// virtual desktop offset
-			{
+			if (!all_desktops) {
 				int screencount = wm_get_desktops(mw->ps);
 				if (screencount == -1)
 					screencount = 1;
@@ -80,13 +114,15 @@ layout_run(MainWin *mw, dlist *windows,
 		dlist_free(sorted_windows);
 	}
 	else {
-		// to get the proper z-order based window ordering,
-		// reversing the list of windows is needed
-		dlist_reverse(windows);
-		layout_xd(windows, total_width, total_height,
+		/* The client list is in stacking order; sort a copy by screen
+		 * position so the previews do not reshuffle whenever the focus
+		 * changes. The caller still needs the original order for the
+		 * focus ring, so it is left untouched. */
+		dlist *ordered = dlist_dup(windows);
+		dlist_sort(ordered, sort_cw_by_position, 0);
+		layout_xd(ordered, total_width, total_height,
 				layout == LAYOUT_COMPACTRECT, mw->distance);
-		// reversing the linked list again for proper focus ordering
-		dlist_reverse(windows);
+		dlist_free(ordered);
 	}
 }
 

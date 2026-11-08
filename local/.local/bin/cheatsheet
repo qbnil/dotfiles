@@ -17,7 +17,7 @@ Super+p                    power menu (sys)
 Super+c                    add clipboard entry (cliphist add)
 Super+v                    paste from clipboard (cliphist sel)
 Super+/                    cheatsheet
-Super+Shift+s              screenshot (flameshot gui)
+Super+Shift+s              screenshot: pick a window (Esc = region)
 XF86MonBrightnessUp/Down   brightness +/- 5% (brightnessctl)
 
 ── music (rmpc/mpd) ──

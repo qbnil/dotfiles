@@ -405,7 +405,8 @@ end
 return {
 	{
 		"lewis6991/gitsigns.nvim",
-		event = { "BufReadPre", "BufNewFile" },
+		-- Git signs/blame are not needed to display or edit a file.
+		event = "VeryLazy",
 		keys = {
 			{
 				"<leader>gn",
@@ -447,6 +448,12 @@ return {
 				-- Needed so staged hunks are computed at all; without it,
 				-- [h/]h reports "No hunks" on staged-only changes.
 				signs_staged_enable = true,
+				on_attach = function(bufnr)
+					-- Diffs/blame on a multi-megabyte buffer are very slow.
+					if vim.b[bufnr].bigfile then
+						return false
+					end
+				end,
 			})
 		end,
 	},

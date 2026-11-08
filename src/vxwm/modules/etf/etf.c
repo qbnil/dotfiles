@@ -9,6 +9,9 @@ enhancedtogglefloating(const Arg *arg)
     const Layout *prevlayout = selmon->lt[selmon->sellt];
 #endif
     c->isfloating = !c->isfloating;
+    /* Alt+E floats this window individually: keep it floating, with its
+     * geometry, when it is sent to a tag that uses a tiling layout. */
+    c->isstickyfloat = c->isfloating;
     if (c->isfloating) {
         int w = c->sfw > 0 ? c->sfw : c->w;
         int h = c->sfh > 0 ? c->sfh : c->h;
@@ -57,6 +60,9 @@ enhancedtogglefloating(const Arg *arg)
     const Layout *prevlayout = selmon->lt[selmon->sellt];
 #endif
     c->isfloating = !c->isfloating;
+    /* Alt+E floats this window individually: keep it floating, with its
+     * geometry, when it is sent to a tag that uses a tiling layout. */
+    c->isstickyfloat = c->isfloating;
     if (c->isfloating) {
         int w = c->sfw > 0 ? c->sfw : c->w;
         int h = c->sfh > 0 ? c->sfh : c->h;

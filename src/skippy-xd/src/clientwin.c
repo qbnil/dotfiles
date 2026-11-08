@@ -1109,16 +1109,20 @@ quick_key_cmp(const void *pa, const void *pb) {
 	return a->y - b->y;
 }
 
-/**
+/*
  * @brief Give every preview a one-key quick-select marker.
  *
  * Pressing a marker jumps straight to that window without navigating to it
  * first. Keys already used by the switcher (hjkl navigation, n/p next/prev)
  * are skipped. Digits are used only when there are more than 20 windows.
  * Markers are assigned left to right so the labels read naturally.
+ *
+ * `windows` must contain only the previews that were actually laid out; when
+ * the switcher shows a single monitor, windows on the other monitor must not
+ * consume markers for previews the user cannot see.
  */
 void
-clientwin_assign_quick_keys(MainWin *mw) {
+clientwin_assign_quick_keys(MainWin *mw, dlist *windows) {
 	static const char markers[] = "abcdefgimoqrstuvwxyz123456789";
 	const size_t nmarkers = sizeof(markers) - 1;
 	session_t *ps = mw->ps;
@@ -1131,7 +1135,7 @@ clientwin_assign_quick_keys(MainWin *mw) {
 		cw->quick_label[0] = '\0';
 	}
 
-	n = dlist_len(mw->clientondesktop);
+	n = dlist_len(windows);
 	if (!n)
 		return;
 
@@ -1140,7 +1144,7 @@ clientwin_assign_quick_keys(MainWin *mw) {
 		return;
 
 	i = 0;
-	foreach_dlist_vn(cl, mw->clientondesktop) {
+	foreach_dlist_vn(cl, windows) {
 		if (i < n)
 			arr[i++] = cl->data;
 	}

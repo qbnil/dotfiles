@@ -19,6 +19,7 @@
 
 #include "skippy.h"
 #include <errno.h>
+#include <signal.h>
 #include <locale.h>
 #include <getopt.h>
 #include <strings.h>
@@ -37,6 +38,115 @@
 #endif
 
 bool debuglog = false;
+
+/* Pressing the switcher key again while a preview is open dismisses it.  A
+ * fresh process cannot cancel the existing one directly, so the running
+ * instance publishes its pid on the root window and a new invocation asks it
+ * to finish through SIGUSR1 (the same path as pressing Escape). */
+#define WINDOW_CHOOSER_PID_ATOM "_SKIPPY_XD_PID"
+
+static volatile sig_atomic_t choose_cancel_requested = 0;
+static Display *chooser_guard_dpy = NULL;
+static Window chooser_guard_root = None;
+static Atom chooser_guard_atom = None;
+
+static void
+cancel_signal_handler(int sig) {
+	(void) sig;
+	choose_cancel_requested = 1;
+}
+
+static void
+install_cancel_handler(void) {
+	struct sigaction sa;
+
+	memset(&sa, 0, sizeof sa);
+	sa.sa_handler = cancel_signal_handler;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGUSR1, &sa, NULL);
+}
+
+/* Is another skippy-xd selecting right now?  The pid is validated against
+ * /proc so a stale property cannot make us signal an unrelated process. */
+static bool
+window_chooser_running(session_t *ps) {
+	Atom type = None;
+	int format = 0;
+	unsigned long nitems = 0, bytes_after = 0;
+	unsigned char *prop = NULL;
+	pid_t pid = 0;
+
+	Atom atom = XInternAtom(ps->dpy, WINDOW_CHOOSER_PID_ATOM, False);
+	if (XGetWindowProperty(ps->dpy, ps->root, atom, 0, 1, False,
+			XA_CARDINAL, &type, &format, &nitems, &bytes_after,
+			&prop) != Success)
+		return false;
+
+	if (prop) {
+		if (nitems == 1 && format == 32)
+			pid = (pid_t) *(unsigned long *) prop;
+		XFree(prop);
+	}
+	if (pid <= 1 || pid == getpid())
+		return false;
+
+	char path[64], cmdline[512];
+	snprintf(path, sizeof path, "/proc/%ld/cmdline", (long) pid);
+	int fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return false;
+	ssize_t len = read(fd, cmdline, sizeof cmdline - 1);
+	close(fd);
+	if (len <= 0)
+		return false;
+	cmdline[len] = '\0';
+
+	if (!strstr(cmdline, "skippy-xd"))
+		return false;
+
+	if (kill(pid, SIGUSR1) != 0)
+		return false;
+	XSync(ps->dpy, False);
+	return true;
+}
+
+static void
+claim_window_chooser(session_t *ps) {
+	unsigned long pid = (unsigned long) getpid();
+
+	chooser_guard_dpy = ps->dpy;
+	chooser_guard_root = ps->root;
+	chooser_guard_atom = XInternAtom(ps->dpy, WINDOW_CHOOSER_PID_ATOM, False);
+	XChangeProperty(ps->dpy, chooser_guard_root, chooser_guard_atom,
+			XA_CARDINAL, 32, PropModeReplace,
+			(unsigned char *) &pid, 1);
+	XSync(ps->dpy, False);
+}
+
+static void
+release_window_chooser(void) {
+	if (!chooser_guard_dpy || !chooser_guard_atom)
+		return;
+
+	/* Only remove the property if it still names this process; a newer
+	 * invocation may already have replaced it. */
+	Atom type = None;
+	int format = 0;
+	unsigned long nitems = 0, bytes_after = 0;
+	unsigned char *prop = NULL;
+	if (XGetWindowProperty(chooser_guard_dpy, chooser_guard_root,
+			chooser_guard_atom, 0, 1, False, XA_CARDINAL, &type,
+			&format, &nitems, &bytes_after, &prop) == Success && prop) {
+		unsigned long pid = (nitems == 1 && format == 32)
+				? *(unsigned long *) prop : 0;
+		XFree(prop);
+		if (pid == (unsigned long) getpid())
+			XDeleteProperty(chooser_guard_dpy, chooser_guard_root,
+					chooser_guard_atom);
+	}
+	chooser_guard_dpy = NULL;
+	chooser_guard_atom = None;
+}
 
 enum pipe_cmd_t {
 	PIPECMD_EXIT_DAEMON = 1,
@@ -810,16 +920,22 @@ anime(
 	float timeslice
 )
 {
-	for (int i=0; i<mw->nmonitors; i++) {
+	/* Only animate the monitor(s) that are actually shown.  Windows on the
+	 * other monitor keep their normal geometry and are not mapped. */
+	bool multimonitor = (mw->ps->o.mode == PROGMODE_SWITCH
+				&& !mw->ps->o.switchOnCurrentMonitor)
+			|| (mw->ps->o.mode == PROGMODE_EXPOSE
+				&& !mw->ps->o.exposeOnCurrentMonitor)
+			|| (mw->ps->o.mode == PROGMODE_PAGING
+				&& !mw->ps->o.pagingOnCurrentMonitor);
+	int i0 = multimonitor ? 0 : mw->active_monitor;
+	int i1 = multimonitor ? mw->nmonitors : i0 + 1;
+
+	for (int i=i0; i<i1; i++) {
 		float mtarget = mw->multiplier[mw->active_monitor];
 		int xoff = mw->xoff[mw->active_monitor],
 			yoff = mw->yoff[mw->active_monitor];
-		if ((mw->ps->o.mode == PROGMODE_SWITCH
-				&& !mw->ps->o.switchOnCurrentMonitor)
-		 || (mw->ps->o.mode == PROGMODE_EXPOSE
-				&& !mw->ps->o.exposeOnCurrentMonitor)
-		 || (mw->ps->o.mode == PROGMODE_PAGING
-				&& !mw->ps->o.pagingOnCurrentMonitor)) {
+		if (multimonitor) {
 			mtarget = mw->multiplier[i];
 			xoff = mw->xoff[i];
 			yoff = mw->yoff[i];
@@ -828,8 +944,11 @@ anime(
 		float multiplier = 1.0 + timeslice * (mtarget - 1.0);
 		mainwin_transform(mw, multiplier);
 
-		dlist *windows = dlist_first(dlist_find_all(mw->clientondesktop,
-				(dlist_match_func) clientwin_filter_monitor, &mw->monitor[i]));
+		dlist *windows = multimonitor
+				? dlist_first(dlist_find_all(mw->clientondesktop,
+					(dlist_match_func) clientwin_filter_monitor,
+					&mw->monitor[i]))
+				: dlist_dup(mw->clientondesktop);
 		foreach_dlist (windows) {
 			ClientWin *cw = (ClientWin *) iter->data;
 			clientwin_move(cw, multiplier, xoff, yoff, timeslice);
@@ -1860,13 +1979,14 @@ skippy_activate(MainWin *mw, Window leader)
 		else
 			for (int i=0; i<mw->nmonitors; i++)
 				init_paging_layout(mw, leader, i);
+		clientwin_assign_quick_keys(mw, mw->clientondesktop);
 	}
 	else {
 		enum layoutmode layout = mw->ps->o.switchLayout;
 		if (ps->o.mode == PROGMODE_EXPOSE)
 			layout = ps->o.exposeLayout;
 
-		int i0 = mw->active_monitor, i1 = i0;
+		int i0 = mw->active_monitor, i1 = i0 + 1;
 		bool multimonitor = (ps->o.mode == PROGMODE_SWITCH && !ps->o.switchOnCurrentMonitor)
 				|| (ps->o.mode == PROGMODE_EXPOSE && !ps->o.exposeOnCurrentMonitor);
 		if (multimonitor) {
@@ -1874,13 +1994,21 @@ skippy_activate(MainWin *mw, Window leader)
 			i1 = mw->nmonitors;
 		}
 
+		/* Windows that actually got a preview.  When only the current monitor
+		 * is shown, windows from the other monitor(s) stay out of the grid,
+		 * the focus ring and the quick-jump marker list. */
+		dlist *displayed = NULL;
+
 		for (int i=i0; i<i1; i++) {
-			dlist *windows = NULL;
-			if (multimonitor)
-				windows = dlist_first(dlist_find_all(mw->clientondesktop,
-						(dlist_match_func) clientwin_filter_monitor, &mw->monitor[i]));
-			else
-				windows = dlist_dup(mw->clientondesktop);
+			/* When only the focused monitor is shown, every window goes on
+			 * that monitor's grid - including windows that physically live
+			 * on another monitor.  The per-monitor filter is only for the
+			 * multimonitor layout where each preview stays on its screen. */
+			dlist *windows = multimonitor
+					? dlist_first(dlist_find_all(mw->clientondesktop,
+						(dlist_match_func) clientwin_filter_monitor,
+						&mw->monitor[i]))
+					: dlist_dup(mw->clientondesktop);
 
 			unsigned int newwidth = 100, newheight = 100;
 			layout_run(mw, windows, mw->monitor[i], layout, &newwidth, &newheight);
@@ -1893,6 +2021,7 @@ skippy_activate(MainWin *mw, Window leader)
 				cw->monitor = i;
 				cw->x *= mw->multiplier[i];
 				cw->y *= mw->multiplier[i];
+				displayed = dlist_add(displayed, cw);
 				// use src0 width/height for restoration later
 				if (cw->paneltype != WINTYPE_PANEL && cw->paneltype != WINTYPE_DESKTOP)
 					clientwin_update2(cw);
@@ -1902,18 +2031,22 @@ skippy_activate(MainWin *mw, Window leader)
 			dlist_free(windows);
 		}
 
-		init_focus(mw, layout, mw->clientondesktop, leader);
+		init_focus(mw, layout,
+				multimonitor ? mw->clientondesktop : dlist_first(displayed),
+				leader);
 		// use src0 width/height for restoration here
 		foreach_dlist(mw->clientondesktop) {
 			ClientWin *cw = iter->data;
 			cw->src.width = cw->src0.width;
 			cw->src.height = cw->src0.height;
 		}
-	}
 
-	/* Layout positions are known now: assign the one-key quick-select
-	 * markers shown on each preview, left to right. */
-	clientwin_assign_quick_keys(mw);
+		/* Layout positions are known now: assign the one-key quick-select
+		 * markers shown on each preview, left to right. */
+		clientwin_assign_quick_keys(mw,
+				multimonitor ? mw->clientondesktop : dlist_first(displayed));
+		dlist_free(displayed);
+	}
 
 	foreach_dlist(mw->panels) {
 		ClientWin *cw = iter->data;
@@ -2046,7 +2179,11 @@ mainloop(session_t *ps, bool activate_on_start) {
 								mw->client_to_focus_on_cancel);
 						if (target) {
 							childwin_focus(target);
-							selected = target->wid_client;
+							/* Cancelling returns -1 even when the
+							 * pre-skippy window was focused again:
+							 * callers must be able to tell "aborted"
+							 * apart from "selected that window". */
+							selected = -1;
 						}
 						else {
 							/* Nothing on this tag (or the pre-skippy
@@ -2648,6 +2785,17 @@ mainloop(session_t *ps, bool activate_on_start) {
 		if (animating)
 			timeout = 0;
 		poll(r_fd, (r_fd[1].fd >= 0 ? 2: 1), timeout);
+
+		/* A second Alt+Tab asks this instance to close exactly like Escape. */
+		if (choose_cancel_requested) {
+			if (mw) {
+				choose_cancel_requested = 0;
+				if (!die) {
+					mw->refocus = true;
+					die = true;
+				}
+			}
+		}
 
 		// Handle daemon commands
 		if (POLLIN & r_fd[1].revents) {
@@ -3875,6 +4023,18 @@ int main(int argc, char *argv[]) {
 			goto main_end;
 	}
 
+	/* A second invocation while a preview is open dismisses the first one
+	 * instead of opening another switcher on top of it. */
+	if (!ps->o.runAsDaemon) {
+		install_cancel_handler();
+		if (window_chooser_running(ps)) {
+			printfdf(false, "(): window chooser already open, cancelling it");
+			ret = RET_SUCCESS;
+			goto main_end;
+		}
+		claim_window_chooser(ps);
+	}
+
 	if (!wm_check(ps)) {
 		/* ret = 1;
 		goto main_end; */
@@ -3979,6 +4139,8 @@ main_end:
 
 		if (ps->mainwin)
 			mainwin_destroy(ps->mainwin);
+
+		release_window_chooser();
 
 		if (ps->dpy)
 			XCloseDisplay(dpy);

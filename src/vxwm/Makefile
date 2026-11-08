@@ -5,13 +5,15 @@ include config.mk
 
 SRC = drw.c vxwm.c util.c
 OBJ = ${SRC:.c=.o}
+# vxwm.c includes the module sources, so make must rebuild it when any module changes.
+MODULES = $(wildcard modules/*.h modules/*.c modules/*/*.h modules/*/*.c)
 
 all: vxwm
 
 .c.o:
 	${CC} -c ${CFLAGS} -I${SRCDIR}/modules $<
 
-${OBJ}: config.h modules.h config.mk
+${OBJ}: config.h modules.h config.mk ${MODULES}
 
 config.h:
 	cp config.def.h $@

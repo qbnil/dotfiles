@@ -76,6 +76,9 @@ movecanvasmouse(const Arg *arg) {
     int tagidx = getcurrenttag(selmon);
     float multiplier = arg ? arg->f : 1.0f;
     float accum_x = 0.0f, accum_y = 0.0f;
+#if ZOOM
+    float zoom_val = zoom_value();
+#endif
 
 
 #if LOCK_MOVE_RESIZE_REFRESH_RATE
@@ -108,8 +111,13 @@ movecanvasmouse(const Arg *arg) {
                multiplier=0.5, nx=1: accum=0.5, dx=0 --- skip
                nx=1:           accum=1.0, dx=1       --- move 
             */
+#if !ZOOM
             accum_x += nx * multiplier;
             accum_y += ny * multiplier;
+#else
+            accum_x += nx * multiplier / zoom_val;
+            accum_y += ny * multiplier / zoom_val;
+#endif
 
             int dx = (int)accum_x;
             int dy = (int)accum_y;
@@ -118,7 +126,8 @@ movecanvasmouse(const Arg *arg) {
             accum_y -= dy;
 
             for (Client *c = selmon->clients; c; c = c->next) {
-                if ((c->tags & (1 << tagidx)) && !c->is_pinned) {
+                /* fullscreen windows belong to the monitor, not the canvas */
+                if ((c->tags & (1 << tagidx)) && !c->is_pinned && !c->isfullscreen) {
                     c->x += dx;
                     c->y += dy;
                     XMoveWindow(dpy, c->win, c->x, c->y);
@@ -208,7 +217,9 @@ centerwindow(const Arg *arg)
 
   Client *tmp;
   for (tmp = m->clients; tmp; tmp = tmp->next) {
-    if (ISVISIBLE(tmp) && !tmp->is_pinned) {
+    /* fullscreen windows sit on the monitor, not on the canvas: panning must
+     * not drag the media viewer/player off the screen */
+    if (ISVISIBLE(tmp) && !tmp->is_pinned && !tmp->isfullscreen) {
       tmp->x += dx;
       tmp->y += dy;
       XMoveWindow(dpy, tmp->win, tmp->x, tmp->y);

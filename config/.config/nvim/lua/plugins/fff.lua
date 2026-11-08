@@ -9,12 +9,10 @@ return {
 		-- for nixos:
 		-- build = "nix run .#release",
 		opts = {
-			debug = {
-				enabled = true,
-				show_scores = true,
-			},
+			debug = { enabled = false },
 		},
-		lazy = false, -- the plugin lazy-initialises itself
+		-- Do not load the file finder while opening a buffer.
+		lazy = true,
 		keys = {
 			{
 				"ff",

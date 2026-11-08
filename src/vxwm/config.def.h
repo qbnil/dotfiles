@@ -16,7 +16,7 @@ static const char dmenufont[]       = "JetBrainsMono Nerd Font:size=12";
 static const char *up_vol[]   = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+", NULL};
 static const char *down_vol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-", NULL};
 static const char *mute_vol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle", NULL};
-static const char *screenshotcmd[] = { "flameshot", "gui", NULL };
+static const char *screenshotcmd[] = { "screenshot", NULL };
 static const char *next_song[] = { "mpc", "next", NULL };
 static const char *prev_song[] = { "mpc", "prev", NULL };
 static const char *stop_song[] = { "mpc", "stop", NULL };
@@ -92,7 +92,7 @@ static MAYBE_CONST char *colors[][3] = {
 #endif
 
 #define CENTER_NEW_FLOATING_WINDOWS 0 // so, basically, it does what it says. (make 0 to turn off)
-#define NEW_FLOATING_WINDOWS_APPEAR_UNDER_CURSOR 0 // so, basically, it does what it says. (make 0 to turn off)
+#define NEW_FLOATING_WINDOWS_APPEAR_UNDER_CURSOR 0 // so, basically, it does what it says. (make 0 to turn off) 
 
 #if GAPS
 static const unsigned int gappx = 3;
@@ -103,7 +103,7 @@ static const int user_bh = 34;
 #endif
 
 #if BAR_PADDING
-static const int top_vertpad = 3;          /* top vertical padding of bar */
+static const int top_vertpad = 3;          /* top vertical padding of bar */ 
 // static const int bottom_vertpad = 8;       /* bottom vertical padding of bar */
 static const int bottom_vertpad = 0;       /* bottom vertical padding of bar */
 // static const int left_sidepad = 10;         /* left horizontal padding of bar */
@@ -147,7 +147,7 @@ static const char *occupiedtags[] = { "1+", "2+", "3+", "4+", "5+", "6+", "7+", 
    any window you have not adjusted by hand. Manual tweaks to the focused window
    (Super+Shift+Up/Down) are temporary: the window reverts to the unfocused
    level as soon as it loses focus. Needs a compositor running client-side
-   xcompmgr -c for any of it to be visible. */
+   (xcompmgr -c or vcompmgr -c) for any of it to be visible. */
 static const unsigned int opacity_focused   = 100; /* focused windows   */
 static const unsigned int opacity_unfocused = 85;  /* unfocused windows */
 static const unsigned int opacity_step      = 5;   /* change per press  */
@@ -223,9 +223,14 @@ static const char *powermenu[] = { "sys", NULL };
 static const char *wallpapermenu[] = { "wallpapermenu", NULL };
 static const char *cheatsheet[] = { "cheatsheet", NULL };
 static const char *dmenuwin[] = {"dmenu-win", NULL };
-/* One-shot preview chooser: all tags, live previews, quick-jump keys. */
+/* Safe one-shot preview of windows on the current tag. */
 static const char *skippycmd[] = { "skippy-xd", NULL };
 
+#if ZOOM
+static const char *zoomin[] = { "vcompmgr", "-Z", "+0.15", NULL }; // zoom in
+static const char *zoomout[] = { "vcompmgr", "-Z", "-0.15", NULL }; // zoom out
+static const char *zoomreset[] = { "vcompmgr", "-Z", "1", NULL }; // set zoom to 1
+#endif
 
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
@@ -350,6 +355,11 @@ static const Key keys[] = {
 	{ MODKEY, XK_k,   focusstrip,     {.i = 2 } }, // up    (vstrip: older window)
 	{ MODKEY, XK_j,   focusstrip,     {.i = 3 } }, // down  (vstrip: newer window)
 #endif
+#if ZOOM
+ { ALTERNATE_MODKEY|ShiftMask,    XK_r,      spawn,          {.v = zoomreset } },
+ { ALTERNATE_MODKEY,              XK_equal,  spawn,          {.v = zoomin } },
+ { ALTERNATE_MODKEY,              XK_minus,  spawn,          {.v = zoomout } },
+#endif
 #if OPACITY
   /* global toggle: all windows opaque, or back to per-focus values */
   { MODKEY,                       XK_o,      toggleopacity,      {0} },
@@ -369,11 +379,18 @@ static const Key keys[] = {
 static const Button buttons[] = {
 	/* click                event mask      button          function        argument */
 #if INFINITE_TAGS
-  { ClkRootWin,           MODKEY|ShiftMask,         Button1,        movecanvasmouse,     {.f = 1.5 } },
+  { ClkRootWin,           MODKEY|ShiftMask,         Button1,        movecanvasmouse,     {.f = 1.5 } }, 
   { ClkClientWin,         MODKEY|ShiftMask,         Button1,        movecanvasmouse,     {.f = 1.5 } },
   { ClkRootWin,           0,                        Button1,        movecanvasmouse,     {.f = 1.5 } },
-  /* .f = 1 is moving multiplier, for example if set to 0.5, canvas will move 2 times slower, if set to 2, canvas will move 2 times faster.
+  /* .f = 1 is moving multiplier, for example if set to 0.5, canvas will move 2 times slower, if set to 2, canvas will move 2 times faster. 
      If you want inverted canvas move then set the value to a negative value. */
+#endif
+#if ZOOM
+  { ClkRootWin,           MODKEY,         SCROLL_UP,      spawn,          {.v = zoomin } },
+  { ClkRootWin,           MODKEY,         SCROLL_DOWN,    spawn,          {.v = zoomout } },
+
+  { ClkClientWin,         MODKEY,         SCROLL_UP,      spawn,          {.v = zoomin } },
+  { ClkClientWin,         MODKEY,         SCROLL_DOWN,    spawn,          {.v = zoomout } },
 #endif
 	{ ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
 	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },

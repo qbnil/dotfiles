@@ -61,6 +61,10 @@ flameshot &
 # Start compositor after wallpaper is set so it sees _XROOTPMAP_ID.
 xcompmgr -Cc -t-1 -l-3 -r0 -o.5 &
 
+# Telegram (and some other Qt apps) produce clipboard images only on demand.
+# Pre-fetch them so a browser paste does not time out and arrive empty.
+command -v clipimg-bridge >/dev/null 2>&1 && clipimg-bridge &
+
 # for browser to be able to open file manager - backgrounded, it's a D-Bus
 # round-trip via systemctl and doesn't need to finish before vxwm starts
 systemctl --user import-environment DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP &

@@ -5,8 +5,21 @@
 desktops = -1
 
 [layout]
-switchLayout = rect
+# Place every preview at the window's real position, scaled to the focused
+# monitor (cosmos). A grid (rect) can only order the previews, so windows at
+# the same height ended up in different rows. With `desktops = -1` the tag
+# offset is skipped, so previews of windows on other tags stay on this monitor.
+switchLayout = cosmos
 exposeLayout = cosmos
+
+
+[multimonitor]
+# Alt+Tab opens the preview on the monitor under the pointer (the focused
+# monitor) instead of spreading previews across every monitor. vxwm also
+# switches its focused monitor when the pointer crosses the root window, so
+# "mouse" follows the compositor's idea of the current monitor.
+currentMonitor = mouse
+exposeOnCurrentMonitor = true
 
 [bindings]
 # vim/nvim-style hjkl for window switching.
@@ -29,3 +42,14 @@ keysCancel = Escape
 keysIconify =
 keysShade =
 keysClose =
+
+[highlight]
+# Keep the upstream white overlay on the preview under the pointer, but drop
+# the 10px tinted border: the border is repainted on every focus change (the
+# background is restored, covers re-rendered and the border drawn again),
+# which made the whole preview flash white while the pointer moved. The fill
+# is drawn into the preview pixmap and stays solid.
+tint = #FFFFFF
+tintOpacity = 128
+tintWindow = true
+tintBorder = 0

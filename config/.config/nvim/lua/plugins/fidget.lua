@@ -1,7 +1,7 @@
 return {
 	{
 		"j-hui/fidget.nvim",
-		lazy = false,
+		event = "VeryLazy",
 		config = function()
 			require("fidget").setup({})
 		end,

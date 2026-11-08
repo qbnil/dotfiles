@@ -110,10 +110,7 @@ resizemouse(const Arg *arg)
     if ((m = recttomon(c->x, c->y, c->w, c->h)) != selmon) {
         sendmon(c, m);
         selmon = m;
-        /* Keep keyboard focus on the window the user just dropped on the
-         * destination monitor, not whichever client happens to be on top
-         * there. */
-        focus(c);
+        focus(NULL);
     }
 #if ENHANCED_TOGGLE_FLOATING && RESTORE_SIZE_AND_POS_ETF
   c->wasmanuallyedited = 1;

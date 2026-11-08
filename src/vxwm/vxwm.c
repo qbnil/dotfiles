@@ -76,9 +76,9 @@ From this moment, i'll try to comment the code and also make it more readable.
   #endif
 #else
   #define SHOWHIDEPROFILE 		if (c->ismapped) { \
-			                          window_unmap(dpy, c->win, root, 1); \
-			                          c->ismapped = 0; \
-		                          } 
+                                  window_unmap(dpy, c->win, root, 1); \
+                                  c->ismapped = 0; \
+                          }
 #endif
 
 /* This is purely for a bit less sucky config */
@@ -134,6 +134,8 @@ struct Client {
 	int bw, oldbw;
 	unsigned int tags;
 	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen;
+	int isstickyfloat; /* individually floated (Alt+E or a rules[] entry):
+	                    * stays floating and keeps its geometry on every tag */
 	int stripsz[2];
 	int fslot; /* floating-canvas slot (1-based), 0 = none */   /* own size in [H] / [V], in 1/1000 of the screen; 0 = default */
 	Client *next;
@@ -407,6 +409,7 @@ applyrules(Client *c)
 
 	/* rule matching */
 	c->isfloating = 0;
+	c->isstickyfloat = 0;
 	c->tags = 0;
 	XGetClassHint(dpy, c->win, &ch);
 	class    = ch.res_class ? ch.res_class : broken;
@@ -419,6 +422,7 @@ applyrules(Client *c)
 		&& (!r->instance || strstr(instance, r->instance)))
 		{
 			c->isfloating = r->isfloating;
+			c->isstickyfloat = r->isfloating;
 			c->tags |= r->tags;
 			for (m = mons; m && m->num != r->monitor; m = m->next);
 			if (m)
@@ -1148,10 +1152,7 @@ enternotify(XEvent *e)
 	Monitor *m;
 	XCrossingEvent *ev = &e->xcrossing;
 
-	if ((ev->mode != NotifyNormal ||
-	     ev->detail == NotifyInferior ||
-	     ev->detail == NotifyVirtual ||
-	     ev->detail == NotifyNonlinearVirtual) && ev->window != root)
+	if ((ev->mode != NotifyNormal || ev->detail == NotifyInferior) && ev->window != root)
 		return;
 	c = wintoclient(ev->window);
 	m = c ? c->mon : wintomon(ev->window);
@@ -1549,21 +1550,32 @@ manage(Window w, XWindowAttributes *wa)
 	updatesizehints(c);
 	updatewmhints(c);
 #if CENTER_NEW_FLOATING_WINDOWS && !NEW_WINDOWS_APPEAR_UNDER_CURSOR
-  c->x = c->mon->wx + (c->mon->ww - WIDTH(c)) / 2;
-  c->y = c->mon->wy + (c->mon->wh - HEIGHT(c)) / 2;
+  if (!c->isfullscreen) {
+    c->x = c->mon->wx + (c->mon->ww - WIDTH(c)) / 2;
+    c->y = c->mon->wy + (c->mon->wh - HEIGHT(c)) / 2;
+    /* Keep centered floating windows wholly inside the usable area. */
+    c->x = MAX(c->x, c->mon->wx);
+    c->y = MAX(c->y, c->mon->wy);
+    c->x = MIN(c->x, c->mon->wx + c->mon->ww - WIDTH(c));
+    c->y = MIN(c->y, c->mon->wy + c->mon->wh - HEIGHT(c));
+  }
 #endif
 #if NEW_FLOATING_WINDOWS_APPEAR_UNDER_CURSOR
-  int mx, my, di;
-  unsigned int dui;
-  Window dw;
-  XQueryPointer(dpy, root, &dw, &dw, &mx, &my, &di, &di, &dui);
-    
-  c->x = mx - c->w / 2;
-  c->y = my - c->h / 2;
+  if (!c->isfullscreen) {
+    int mx, my, di;
+    unsigned int dui;
+    Window dw;
+    XQueryPointer(dpy, root, &dw, &dw, &mx, &my, &di, &di, &dui);
+
+    c->x = mx - c->w / 2;
+    c->y = my - c->h / 2;
+  }
 #endif
 #if INFINITE_TAGS
-	/* floating layout: give a new window its own free slot on the canvas */
-	if (c->mon == selmon && curlayout(selmon)->arrange == NULL && !trans && !c->isfixed) {
+	/* floating layout: give a new window its own free slot on the canvas.
+	 * A fullscreen client is not a canvas window: setfullscreen() already made
+	 * it monitor-sized, and a float slot would shrink it back to 75%x78%. */
+	if (c->mon == selmon && curlayout(selmon)->arrange == NULL && !trans && !c->isfixed && !c->isfullscreen) {
 		Client *o;
 		for (o = c->mon->clients; o; o = o->next)
 			if ((o->tags & c->tags) && !o->fslot && !o->isfullscreen && !o->is_pinned)
@@ -1590,7 +1602,13 @@ manage(Window w, XWindowAttributes *wa)
 	#endif
 	XChangeProperty(dpy, root, netatom[NetClientList], XA_WINDOW, 32, PropModeAppend,
 		(unsigned char *) &(c->win), 1);
-	XMoveResizeWindow(dpy, c->win, c->x + 2 * sw, c->y, c->w, c->h); /* some windows require this */
+	/* Fullscreen clients were just resized to their monitor by setfullscreen();
+	 * parking them off-screen (the canvas trick) would leave them invisible,
+	 * because nothing pans the canvas for a non-slot window. */
+	if (c->isfullscreen)
+		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+	else
+		XMoveResizeWindow(dpy, c->win, c->x + 2 * sw, c->y, c->w, c->h); /* some windows require this */
 	setclientstate(c, NormalState);
 	if (c->mon == selmon)
 		unfocus(selmon->sel, 0);
@@ -1696,6 +1714,9 @@ movemouse(const Arg *arg)
 #if LOCK_MOVE_RESIZE_REFRESH_RATE
 	Time lasttime = 0;
 #endif
+#if ZOOM
+  float zoom_val = zoom_value();
+#endif
 
 	if (!(c = selmon->sel) || c->isfullscreen)
 		return;
@@ -1721,8 +1742,13 @@ movemouse(const Arg *arg)
 				continue;
 			lasttime = ev.xmotion.time;
 #endif
+#if !ZOOM
 			nx = ocx + (ev.xmotion.x - x);
 			ny = ocy + (ev.xmotion.y - y);
+#else
+      nx = ocx + (ev.xmotion.x - x) / zoom_val;
+			ny = ocy + (ev.xmotion.y - y) / zoom_val;
+#endif
 			if (abs(selmon->wx - nx) < snap)
 				nx = selmon->wx;
 			else if (abs((selmon->wx + selmon->ww) - (nx + WIDTH(c))) < snap)
@@ -2012,6 +2038,12 @@ restack(Monitor *m)
 				XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
 				wc.sibling = c->win;
 			}
+		/* Floating windows stay above tiled ones also while the tag uses a
+		 * tiling layout, so e.g. a floating video player is never covered by
+		 * the window that receives focus. */
+		for (c = m->stack; c; c = c->snext)
+			if (c->isfloating && !c->isfullscreen && ISVISIBLE(c))
+				XRaiseWindow(dpy, c->win);
 	}
 #if BAR_ALWAYS_ON_TOP 
   else {
@@ -2039,6 +2071,9 @@ restack(Monitor *m)
 #if BAR_ALWAYS_ON_TOP
   }
 #endif
+	/* Keep the status bar above floating windows too, but never above fullscreen. */
+	if (!m->sel || !m->sel->isfullscreen)
+		XRaiseWindow(dpy, m->barwin);
 	XSync(dpy, False);
 	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 }
@@ -2232,28 +2267,26 @@ setlayout(const Arg *arg)
 #endif /* PER_TAG_LAYOUT */
 
 #if INFINITE_TAGS
+    /* Only the windows of the shown tag belong to the layout that just changed.
+     * Touching every client of the monitor would float the windows of the other
+     * tags too, and since a tag switch does not undo that, coming back to a
+     * tiling tag would leave its windows floating: the next window opened there
+     * would then be the only tiled one and sit behind them at full size. */
     if (old_layout->arrange == NULL && new_layout->arrange != NULL) {
-		int tagidx = getcurrenttag(selmon);
         save_canvas_positions(selmon);
         homecanvas(NULL);
         Client *c;
         for (c = selmon->clients; c; c = c->next)
-			/* A layout belongs to one tag. Do not turn windows on other
-			 * workspaces into tiled clients when this workspace leaves the
-			 * floating canvas. */
-            if ((c->tags & (1 << tagidx)) && !c->isfixed)
-				c->isfloating = 0;
+            if (ISVISIBLE(c) && !c->isfixed && !c->isstickyfloat) c->isfloating = 0;
     }
 
     if (new_layout->arrange == NULL) {
-		int tagidx = getcurrenttag(selmon);
         restore_canvas_positions(selmon);
 
         Client *c;
         for (c = selmon->clients; c; c = c->next)
-			/* Keep every other workspace's client state intact. */
-            if (c->tags & (1 << tagidx))
-				c->isfloating = 1;
+            if (ISVISIBLE(c))
+                c->isfloating = 1;
 
         /* entering floating from a tiled layout: lay the windows of this
          * workspace out side by side without overlap */
@@ -2476,18 +2509,21 @@ tag(const Arg *arg)
         unsigned int target_tag_mask = arg->ui & TAGMASK;
         int i;
 
-        for (i = 0; i < LENGTH(tags); i++) {
+        /* Preserve the window's actual position when it changes desktops.
+         * The old code used the destination canvas and a guessed centered
+         * position, which made floating windows jump toward the upper-left
+         * when the destination desktop was shown. */
+        int destination_tag = getcurrenttag(selmon);
+        for (i = 0; i < LENGTH(tags); i++)
             if (target_tag_mask & (1 << i)) {
-                
-                c->saved_cx = selmon->canvas[i].cx + (selmon->ww - WIDTH(c)) / 2;
-                c->saved_cy = selmon->canvas[i].cy + (selmon->wh - HEIGHT(c)) / 2;
-                c->saved_cw = c->w;
-                c->saved_ch = c->h;
-                c->was_on_canvas = 1;
-                
+                destination_tag = i;
                 break;
             }
-        }
+        c->saved_cx = c->x + selmon->canvas[destination_tag].cx;
+        c->saved_cy = c->y + selmon->canvas[destination_tag].cy;
+        c->saved_cw = c->w;
+        c->saved_ch = c->h;
+        c->was_on_canvas = 1;
 #endif
 
         c->tags = arg->ui & TAGMASK;
@@ -2511,15 +2547,22 @@ tag(const Arg *arg)
 			Arg a = { .ui = target };
 			view(&a);
 #if INFINITE_TAGS
-			/* The window belongs to the layout of the tag it lands on. Tiled there,
-			 * it must not stay floating and end up on top of the tiled windows with
-			 * the next window opened on that tag hidden beneath it; floating there,
-			 * it gets a normal canvas slot instead of the size and place it had
-			 * while it was tiled on the tag it came from. */
-			if (curlayout(selmon)->arrange == NULL)
-				floatslot(selmon, c);
-			else if (!c->isfixed)
+			/* A floating window keeps its geometry when moved between desktops.
+			 * floatslot() intentionally assigns a new default size and position,
+			 * which made mpv jump left and resize on the destination desktop. */
+			if (curlayout(selmon)->arrange == NULL) {
+				c->isfloating = 1;
+				c->fslot = 1;
+				/* A window that was tiled on the tag it came from still
+				 * gets a normal canvas slot; a window that was already
+				 * floating, or is individually floated (Alt+E / rule),
+				 * keeps its size and place. */
+				if (!leftfloat && !c->isstickyfloat)
+					floatslot(selmon, c);
+			} else if (!c->isfixed && !c->isstickyfloat) {
 				c->isfloating = 0;
+				c->fslot = 0;
+			}
 #endif
 		}
 		focus(c);
@@ -2532,19 +2575,18 @@ void
 tagmon(const Arg *arg)
 {
 	Monitor *m;
-	Client *c;
 
-	if (!(c = selmon->sel) || !mons->next || (m = dirtomon(arg->i)) == selmon)
+	if (!selmon->sel || !mons->next || (m = dirtomon(arg->i)) == selmon)
 		return;
 
 	/* Move the client and follow it to the destination monitor.  sendmon()
 	 * deliberately does not change selmon because it is also used while
 	 * managing clients and applying rules.  For the explicit Mod+Shift+,/.
-	 * action, focus the moved client directly: focus(NULL) can pick another
-	 * client from the destination stack depending on ordering. */
-	sendmon(c, m);
+	 * action, however, leaving focus behind makes the moved window appear to
+	 * vanish and requires a second focus-monitor keystroke. */
+	sendmon(selmon->sel, m);
 	selmon = m;
-	focus(c);
+	focus(NULL);
 }
 
 void
@@ -3146,6 +3188,9 @@ togglefloating(const Arg *arg)
 		return;
 	if (selmon->sel->isfullscreen) /* no support for fullscreen windows */
 		return;
+	/* the plain toggle is layout-like: the window follows the tag layout
+	 * again when it is moved elsewhere */
+	selmon->sel->isstickyfloat = 0;
 	selmon->sel->isfloating = !selmon->sel->isfloating || selmon->sel->isfixed;
 	if (selmon->sel->isfloating)
 		resize(selmon->sel, selmon->sel->x, selmon->sel->y,
@@ -3210,6 +3255,7 @@ unmanage(Client *c, int destroyed)
 {
 	Monitor *m = c->mon;
 	XWindowChanges wc;
+	unsigned int ctags = c->tags;
 
 	detach(c);
 	detachstack(c);
@@ -3226,6 +3272,37 @@ unmanage(Client *c, int destroyed)
 		XUngrabServer(dpy);
 	}
 	free(c);
+	/* last tiled window of a tag is gone: forget that tag's master-size (mfact)
+	 * adjustment and its layout, so the next windows there start at the config.h
+	 * defaults again. Only the floating layout stays remembered. */
+#if PER_TAG_LAYOUT
+	{
+		unsigned int i;
+		Client *o;
+
+		for (i = 0; i < LENGTH(tags); i++) {
+			if (!(ctags & (1 << i)))
+				continue;
+			for (o = m->clients; o && (o->isfloating || !(o->tags & (1 << i))); o = o->next);
+			if (o)
+				continue;
+			if (!m->pertaglt[i]->arrange) /* floating layout: keep it */
+				continue;
+			m->pertagmfact[i] = mfact;
+			m->pertaglt[i] = &layouts[0];
+			m->pertagsellt[i] = 0;
+			if (currenttagidx(m) == (int)i) {
+				m->mfact = mfact;
+				m->lt[0] = &layouts[0];
+				m->sellt = 0;
+			}
+		}
+	}
+#else
+	(void)ctags;
+	if (!nexttiled(m->clients))
+		m->mfact = mfact;
+#endif
 	focus(NULL);
 	updateclientlist();
 	arrange(m);

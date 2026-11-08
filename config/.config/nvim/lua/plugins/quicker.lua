@@ -1,10 +1,7 @@
 return {
 	{
 		"stevearc/quicker.nvim",
-		-- Load eagerly so the very first quickfix buffer is already editable.
-		-- With `ft = "qf"` the plugin loads during the FileType event, which can
-		-- be too late for that first buffer.
-		lazy = false,
+		ft = "qf",
 		---@module "quicker"
 		---@type quicker.SetupOptions
 		opts = {

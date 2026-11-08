@@ -58,6 +58,7 @@ pass
 pipewire-alsa
 pipewire-jack
 podman
+python-xlib
 qemu-desktop
 redshift
 reflector
@@ -71,6 +72,7 @@ vdpauinfo
 virt-manager
 virt-viewer
 xcolor
+xclip
 xdg-desktop-portal-gtk
 xorg-xrefresh
 xsettingsd

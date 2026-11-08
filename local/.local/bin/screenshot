@@ -1,0 +1,153 @@
+#!/bin/sh
+# Screenshot with a window picker.
+#
+# Super+Shift+S shows every window from every tag as a preview (skippy-xd).
+# Picking one reveals it first (switches to its tag, or pans the floating
+# canvas so it is on screen), then opens flameshot with that window as the
+# preselected capture region -- so tiled, floating, monocle, strip and every
+# other layout capture the right pixels even when the window was hidden.
+#
+# Escape in the picker means "no window": a normal `flameshot gui` starts, so
+# the usual region capture of what is on screen still works.  A second
+# Super+Shift+S while the picker is open cancels everything.
+#
+# If the capture is aborted, the focus and the pointer go back where they were
+# before the picker opened (flameshot's overlay is a floating window, and
+# closing it in the floating layout otherwise leaves the canvas somewhere
+# else).
+
+set -u
+
+picker=${SCREENSHOT_PICKER:-skippy-xd}
+flameshot=${SCREENSHOT_FLAMESHOT:-flameshot}
+runtime=${XDG_RUNTIME_DIR:-/tmp}
+[ -d "$runtime" ] || runtime=/tmp
+uid=$(id -u)
+lock="$runtime/screenshot-$uid.lock"
+cancel="$runtime/screenshot-$uid.cancel"
+
+# A second press while a picker is open must cancel the whole capture, not
+# start a second one.  The lock also keeps two flameshot GUIs apart.
+if command -v flock >/dev/null 2>&1; then
+	exec 9>"$lock"
+	if ! flock -n 9; then
+		: >"$cancel"
+		pid=$(xprop -root _SKIPPY_XD_PID 2>/dev/null | sed -n 's/.*= *//p')
+		case $pid in
+		'' | *[!0-9]*) ;;
+		*) kill -USR1 "$pid" 2>/dev/null ;;
+		esac
+		exit 0
+	fi
+fi
+rm -f "$cancel"
+
+prev=$(xdotool getactivewindow 2>/dev/null || true)
+mouse=$(xdotool getmouselocation --shell 2>/dev/null || true)
+pmx=$(printf '%s\n' "$mouse" | sed -n 's/^X=//p')
+pmy=$(printf '%s\n' "$mouse" | sed -n 's/^Y=//p')
+
+restore_focus() {
+	if [ -n "${pmx:-}" ] && [ -n "${pmy:-}" ]; then
+		xdotool mousemove --sync "$pmx" "$pmy" 2>/dev/null
+	fi
+	if [ -n "${prev:-}" ] && xdotool getwindowname "$prev" >/dev/null 2>&1; then
+		xdotool windowactivate "$prev" 2>/dev/null
+	fi
+}
+
+# The usual capture: flameshot's own region selection of the visible screen.
+normal_capture() {
+	"$flameshot" gui
+	rc=$?
+	# Flameshot's fullscreen capture window can leave the floating canvas
+	# panned to the capture area even after a successful copy.  Re-activate
+	# the window that was visible before the picker opened in both cases.
+	restore_focus
+	exit "$rc"
+}
+
+sel=$("$picker" 2>/dev/null | tail -n 1)
+case $sel in
+'' | *[!0-9]*) sel=-1 ;;
+esac
+
+# A second press asked the picker to close: stop here instead of falling back.
+if [ -e "$cancel" ]; then
+	rm -f "$cancel"
+	exit 0
+fi
+
+[ "$sel" = "-1" ] && normal_capture
+
+# skippy already activated the window; repeat it through EWMH so the tag is
+# shown and, in the floating layout, the canvas is panned onto the window.
+xdotool windowactivate "$sel" 2>/dev/null
+sleep 0.15
+
+geom=$(xdotool getwindowgeometry --shell "$sel" 2>/dev/null) || normal_capture
+wx=$(printf '%s\n' "$geom" | sed -n 's/^X=//p')
+wy=$(printf '%s\n' "$geom" | sed -n 's/^Y=//p')
+ww=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+wh=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+case "$wx$wy$ww$wh" in
+'' | *[!0-9]*) normal_capture ;;
+esac
+[ "$ww" -gt 0 ] && [ "$wh" -gt 0 ] || normal_capture
+
+# Largest part of the window decides its monitor.  flameshot's --region is
+# relative to the captured monitor, and captureActiveMonitor captures the
+# monitor under the pointer, so both must agree on the same one.
+mon=$(xrandr --listmonitors 2>/dev/null | awk -v x="$wx" -v y="$wy" -v w="$ww" -v h="$wh" '
+/^[ ]*[0-9]+:/ {
+	geo = $3
+	if (!match(geo, /^[0-9]+\/[0-9]+x[0-9]+\/[0-9]+\+(-?[0-9]+)\+(-?[0-9]+)$/, m))
+		next
+	split(geo, a, /[\/x+]/)
+	mw = a[1] + 0; mh = a[3] + 0
+	mx = m[1] + 0; my = m[2] + 0
+	ix = (x + w < mx + mw ? x + w : mx + mw) - (x > mx ? x : mx)
+	iy = (y + h < my + mh ? y + h : my + mh) - (y > my ? y : my)
+	if (ix > 0 && iy > 0 && ix * iy > best) {
+		best = ix * iy; bx = mx; by = my; bw = mw; bh = mh
+	}
+}
+END { if (best > 0) printf "%d %d %d %d\n", bx, by, bw, bh }')
+[ -n "$mon" ] || normal_capture
+set -- $mon
+mx=$1 my=$2 mw=$3 mh=$4
+
+# Clip the window to the monitor and convert to monitor-local coordinates.
+x0=$wx y0=$wy x1=$((wx + ww)) y1=$((wy + wh))
+[ "$x0" -lt "$mx" ] && x0=$mx
+[ "$y0" -lt "$my" ] && y0=$my
+[ "$x1" -gt $((mx + mw)) ] && x1=$((mx + mw))
+[ "$y1" -gt $((my + mh)) ] && y1=$((my + mh))
+rw=$((x1 - x0)) rh=$((y1 - y0))
+[ "$rw" -gt 0 ] && [ "$rh" -gt 0 ] || normal_capture
+region="${rw}x${rh}+$((x0 - mx))+$((y0 - my))"
+
+# Put the pointer on the window: captureActiveMonitor picks the monitor under
+# the cursor, so this selects the window's monitor without the monitor dialog.
+xdotool mousemove --sync $((x0 + rw / 2)) $((y0 + rh / 2)) 2>/dev/null
+
+# A throw-away config with the user's settings plus captureActiveMonitor, so
+# the capture goes straight to the picked monitor instead of asking first.
+cfg="$runtime/flameshot-screenshot-$uid"
+mkdir -p "$cfg/flameshot" || normal_capture
+ini="$cfg/flameshot/flameshot.ini"
+cp "$HOME/.config/flameshot/flameshot.ini" "$ini" 2>/dev/null || : >"$ini"
+sed -i '/^captureActiveMonitor[[:space:]]*=/d' "$ini"
+if grep -q '^\[General\]' "$ini"; then
+	sed -i '/^\[General\]/a captureActiveMonitor=true' "$ini"
+else
+	{
+		printf '[General]\ncaptureActiveMonitor=true\n'
+		cat "$ini"
+	} >"$ini.tmp" && mv "$ini.tmp" "$ini"
+fi
+
+XDG_CONFIG_HOME="$cfg" "$flameshot" gui --region "$region"
+rc=$?
+[ "$rc" -ne 0 ] && restore_focus
+exit "$rc"

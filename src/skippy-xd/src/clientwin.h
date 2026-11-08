@@ -128,7 +128,7 @@ int clientwin_check_group_leader_func(dlist *l, void *data);
 void clientwin_render(ClientWin *);
 void clientwin_schedule_repair(ClientWin *cw, XRectangle *area);
 void clientwin_repair(ClientWin *cw);
-void clientwin_assign_quick_keys(MainWin *mw);
+void clientwin_assign_quick_keys(MainWin *mw, dlist *windows);
 void clientwin_tooltip(ClientWin *cw);
 void childwin_focus(ClientWin *cw);
 

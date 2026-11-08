@@ -176,7 +176,8 @@ install -Dm755 zig-out/bin/zlstatus ~/.local/bin/zlstatus
 | Resize floating window | `Alt+Ctrl+Shift` + `h/j/k/l` | Keyboard resize (50 px steps). |
 | Toggle floating | `Alt+Shift+Space` | `togglefloating`. |
 | Enhanced toggle floating | `Alt+e` | `enhancedtogglefloating`. |
-| Window chooser | `Alt+Tab` / `Alt+Shift+Tab` | `skippy-xd`: live previews of **all tags** with tag numbers. Move with `h/j/k/l`, select with `Return`/`space`, cancel with `Esc`. Every preview shows a letter marker (`a`, `b`, `c`, ...) and pressing it jumps straight to that window and its tag. |
+| Window chooser | `Alt+Tab` / `Alt+Shift+Tab` | `skippy-xd`: live previews of **all tags** with tag numbers, shown on the monitor under the pointer only. Every preview sits at its window's real on-screen position (scaled to the monitor), so the arrangement does not reshuffle when the focus changes. Move with `h/j/k/l`, select with `Return`/`space`, cancel with `Esc` or a second `Alt+Tab`. Every preview shows a letter marker (`a`, `b`, `c`, ...) and pressing it jumps straight to that window and its tag. |
+| Screenshot picker | `Super+Shift+S` | `screenshot`: shows the same all-tag previews and captures the window you pick in any layout (tiled, floating, monocle, ...). `Esc` in the picker falls back to a normal `flameshot gui` region capture; a second `Super+Shift+S` cancels. The previous window, tag, pointer and floating-canvas view are restored after the normal capture; aborting also restores them. |
 | Cycle all windows | `Alt+\` / `Alt+Shift+\` | `alttaball`: cycles every visible window, tiled and floating. |
 | Cycle floating windows | ``Alt+` `` / ``Alt+Shift+` `` | `alttab`: cycles only floating windows. |
 | Monocle position indicator | — | The bar shows `[i/n]` (e.g. `[3/5]`) — the focused window's position among the visible windows — and updates immediately on every focus change. |
