@@ -15,6 +15,11 @@ end
 vim.opt.rtp:prepend(lazypath)
 
 require("config.options")
+require("config.theme").setup()
+require("config.indent").setup()
+-- Must be set up before lazy.nvim so its FileType autocmd runs first and
+-- vim.b.bigfile is visible to the plugins loaded below.
+require("config.bigfile").setup()
 require("lazy").setup("plugins", {
 	defaults = {
 		lazy = true,

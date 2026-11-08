@@ -4,6 +4,10 @@ return {
 		name = "rose-pine",
 		lazy = false,
 		priority = 1000,
+		dependencies = {
+			"folke/tokyonight.nvim",
+			"ellisonleao/gruvbox.nvim",
+		},
 		config = function()
 			require("rose-pine").setup({
 				styles = {
@@ -18,7 +22,30 @@ return {
 					NotificationError = { bg = "none", fg = "love" },
 				},
 			})
-			vim.cmd("colorscheme rose-pine")
+
+			require("tokyonight").setup({
+				style = "night",
+				transparent = false,
+				styles = {
+					bold = false,
+					italic = false,
+				},
+			})
+
+			require("gruvbox").setup({
+				contrast = "hard",
+				transparent_mode = false,
+				italic = {
+					strings = false,
+					comments = false,
+					operators = false,
+					folds = false,
+				},
+				bold = false,
+			})
+
+			-- Applies the saved theme, falling back to Rose Pine.
+			require("config.theme").load()
 		end,
 	},
 }

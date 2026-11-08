@@ -40,6 +40,24 @@ vim.keymap.set("n", "<S-h>", ":bprevious<CR>", { silent = true, desc = "Previous
 
 vim.keymap.set("n", "<C-c>", ":bwipeout<CR>", { silent = true, desc = "Close current buffer" })
 
+vim.keymap.set("n", "<leader>b", function()
+	require("config.buffers").open()
+end, { silent = true, desc = "Buffer manager" })
+
+-- Terminal splits: h = left, l = right, j = bottom, k = top.
+vim.keymap.set("n", "<leader>Th", function()
+	require("config.terminal").toggle("left")
+end, { silent = true, desc = "Terminal left" })
+vim.keymap.set("n", "<leader>Tl", function()
+	require("config.terminal").toggle("right")
+end, { silent = true, desc = "Terminal right" })
+vim.keymap.set("n", "<leader>Tj", function()
+	require("config.terminal").toggle("bottom")
+end, { silent = true, desc = "Terminal bottom" })
+vim.keymap.set("n", "<leader>Tk", function()
+	require("config.terminal").toggle("top")
+end, { silent = true, desc = "Terminal top" })
+
 vim.keymap.set("n", "<S-k>", "<C-u>zz", { desc = "Scroll up and center" })
 vim.keymap.set("n", "<S-j>", "<C-d>zz", { desc = "Scroll down and center" })
 
@@ -144,3 +162,7 @@ vim.keymap.set("n", "<C-k>", function()
 	resize("k", 2)
 end, { silent = true, desc = "Resize: border up" })
 vim.keymap.set("n", "<leader>=", "<C-w>=", { silent = true, desc = "Equalize window sizes" })
+
+vim.keymap.set("n", "<leader>?", function()
+	require("config.cheatsheet").open()
+end, { silent = true, desc = "Show keymap cheatsheet" })

@@ -2,6 +2,7 @@ vim.g.mapleader = " "
 
 vim.o.termguicolors = true
 vim.o.updatetime = 200
+vim.o.timeoutlen = 300
 vim.o.swapfile = false
 vim.o.backup = false
 vim.o.autoread = true
@@ -14,7 +15,9 @@ vim.o.relativenumber = true
 
 vim.o.completeopt = "menu,menuone,noselect,preview"
 vim.o.pumheight = 10
-vim.o.winborder = "rounded"
+-- No borders on floating windows (hover, diagnostics, completion). Borders
+-- are replaced by a brighter background so the popups stay easy to spot.
+vim.o.winborder = "none"
 vim.o.showmode = false
 
 vim.o.cursorline = true
