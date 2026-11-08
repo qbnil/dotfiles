@@ -987,11 +987,145 @@ def audio_card(b, K, title):
     row(c, "Device", combo([d for _, d in devs], cur,
         lambda v: run(["pactl", "set-default-" + K, names[v]], "default %s set" % K, lambda: reload_page("audio", 200))))
 
+class MicMeter(Gtk.Box):
+    """Live input-level meter: reads the default source with `parec` and shows
+    the peak level as a bar, so you can speak and confirm the mic captures."""
+
+    def __init__(self):
+        super().__init__(orientation=VERT, spacing=8)
+        self.set_margin_top(4)
+        head = Gtk.Box(spacing=8)
+        head.pack_start(cls(Gtk.Label(label="Input level", xalign=0), "h"), False, False, 0)
+        self.val = Gtk.Label(label="starting…", xalign=1)
+        self.val.set_ellipsize(Pango.EllipsizeMode.START)
+        head.pack_end(self.val, False, False, 0)
+        self.pack_start(head, False, False, 0)
+        self.bar = Gtk.DrawingArea()
+        self.bar.set_size_request(-1, 20)
+        self.bar.connect("draw", self._draw)
+        self.pack_start(self.bar, False, False, 0)
+
+        self._level = 0.0      # latest measured linear amplitude (0..1)
+        self._disp = 0.0       # displayed bar fraction (0..1)
+        self._peak = 0.0       # peak-hold bar fraction, decaying
+        self._db = None        # latest dBFS for the label
+        self._proc = None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._tick = GLib.timeout_add(70, self._poll)
+        if have("parec"):
+            threading.Thread(target=self._read, daemon=True).start()
+        else:
+            self.val.set_text("parec not installed")
+        self.connect("destroy", self._on_destroy)
+
+    def _on_destroy(self, *_):
+        self._stop.set()
+        if self._tick:
+            GLib.source_remove(self._tick); self._tick = 0
+        p = self._proc
+        if p is not None and p.poll() is None:
+            try: p.kill()
+            except Exception: pass
+
+    def _read(self):
+        while not self._stop.is_set():
+            src = sh(["pactl", "get-default-source"]) or "@DEFAULT_SOURCE@"
+            cmd = ["parec", "--raw", "--format=s16le", "--rate=44100", "--channels=1",
+                   "--latency-msec=40", "--device=" + src]
+            try:
+                self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            except Exception:
+                self._proc = None
+                break
+            peak = 0
+            last = time.time()
+            try:
+                while not self._stop.is_set():
+                    data = self._proc.stdout.read(2048)
+                    if not data:
+                        break
+                    for i in range(0, len(data) - 1, 2):
+                        v = int.from_bytes(data[i:i + 2], "little", signed=True)
+                        if v < 0: v = -v
+                        if v > peak: peak = v
+                    now = time.time()
+                    if now - last >= 0.06:
+                        with self._lock:
+                            self._level = peak / 32768.0
+                        peak = 0; last = now
+            except Exception:
+                pass
+            finally:
+                try:
+                    if self._proc.poll() is None: self._proc.kill()
+                    self._proc.wait()
+                except Exception:
+                    pass
+                self._proc = None
+            with self._lock:
+                self._level = 0.0
+            if not self._stop.is_set():
+                self._stop.wait(1.0)  # device may have changed; retry shortly
+
+    def _poll(self):
+        with self._lock:
+            lvl = self._level
+        # Convert the actual measured peak to a dBFS bar position.  The old
+        # implementation added a fixed amount on every tick, which caused
+        # the bar to fill from tiny background noise even when nobody spoke.
+        # A -42 dBFS gate keeps normal USB/electrical noise visually still.
+        raw_db = 20.0 * math.log10(lvl) if lvl > 1e-6 else -float("inf")
+        if raw_db < -42.0:
+            target = 0.0
+            self._db = None
+            self.val.set_text("no signal")
+        else:
+            self._db = raw_db
+            self.val.set_text("%.0f dB" % raw_db)
+            target = max(0.0, min(1.0, (raw_db + 50.0) / 50.0))
+
+        # Smooth the actual target, rather than incrementing blindly. Attack
+        # is quick enough for speech; release is slower so short words remain
+        # visible without making silence appear active.
+        smoothing = 0.55 if target > self._disp else 0.18
+        self._disp += (target - self._disp) * smoothing
+
+        if target > 0.02 and target > self._peak:
+            self._peak = target
+        else:
+            self._peak = max(0.0, self._peak - 0.012)
+        self.bar.queue_draw()
+        return True
+
+    def _draw(self, w, cr):
+        a = self.bar.get_allocation(); wd, ht = a.width, a.height
+        cr.set_source_rgba(0, 0, 0, 0.30); cr.rectangle(0, 0, wd, ht); cr.fill()
+        if self._db is None:
+            col = (0.45, 0.50, 0.56)
+        elif self._db < -18.0:
+            col = (0.36, 0.85, 0.42)
+        elif self._db < -6.0:
+            col = (0.98, 0.72, 0.28)
+        else:
+            col = (0.93, 0.35, 0.35)
+        frac = self._disp
+        if frac > 0.0:
+            cr.set_source_rgb(*col)
+            cr.rectangle(0, 0, wd * frac, ht); cr.fill()
+        if self._peak > 0.0:
+            x = wd * min(1.0, self._peak)
+            cr.set_source_rgb(1, 1, 1); cr.rectangle(x - 1, 0, 2, ht); cr.fill()
+
 @page("audio", "Audio")
 def audio():
     b = new_page("Audio")
     audio_card(b, "sink", "Output")
     audio_card(b, "source", "Input")
+    c = card(b, "Microphone test")
+    c.pack_start(MicMeter(), False, False, 0)
+    c.pack_start(cls(Gtk.Label(label="Speak and watch the bar — it reacts when the selected input captures audio. Flat bar = no signal.",
+                               xalign=0, wrap=True), "dim"), False, False, 0)
     if have("pavucontrol"): btnrow(b, btn("Open pavucontrol", lambda: bg("pavucontrol")))
     return b
 
